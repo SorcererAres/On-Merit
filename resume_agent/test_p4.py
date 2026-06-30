@@ -93,6 +93,21 @@ def test_publications_and_languages_render():
     print("OK: publications / languages 渲染")
 
 
+def test_metrics_explicit_override():
+    """meta.metrics 显式指定时优先于启发式派生。"""
+    r = {"basics": {"name": "X"},
+         "meta": {"metrics": [
+             {"value": "50,000", "unit": "+", "label": "平台用户"},
+             {"value": "500", "unit": "%", "label": "效率提升"},
+             {"value": "36.5", "unit": "%", "label": "满意度增长"},
+         ]}}
+    html = kami_adapter.render_html(r)
+    assert 'class="metrics"' in html
+    assert "平台用户" in html and "满意度增长" in html
+    assert "50,000" in html
+    print("OK: meta.metrics 显式覆盖")
+
+
 def test_metrics_skip_when_weak():
     # 没有量化数字 -> 不渲染 metrics 带
     plain = {"basics": {"name": "无数字", "summary": "我是一个普通工程师"}}
@@ -142,6 +157,7 @@ if __name__ == "__main__":
     test_volunteer_and_certificates_render()
     test_publications_and_languages_render()
     test_metrics_derive()
+    test_metrics_explicit_override()
     test_metrics_skip_when_weak()
     test_safe_url_blocks_dangerous_schemes()
     test_xss_url_not_rendered_as_link()

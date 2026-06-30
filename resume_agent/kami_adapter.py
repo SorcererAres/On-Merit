@@ -219,8 +219,24 @@ def derive_metrics(resume: Dict[str, Any], limit: int = 4) -> List[Dict[str, str
 
 
 def build_metrics(resume: Dict[str, Any]) -> str:
-    """Kami 头部 4 个数字标签。强信号才渲染（>=3 个），否则省略。"""
-    metrics = derive_metrics(resume, limit=4)
+    """Kami 头部数字标签。
+
+    优先用 ``resume.meta.metrics``（用户显式指定，[{value, unit, label}]，显式优于启发式）；
+    否则从简历量化数字自动派生。强信号才渲染（>=3 个），否则省略。
+    """
+    explicit = (resume.get("meta") or {}).get("metrics")
+    if isinstance(explicit, list) and explicit:
+        metrics = [
+            {
+                "value": esc(str(m.get("value", ""))),
+                "unit": esc(str(m.get("unit", ""))),
+                "label": esc(str(m.get("label", ""))),
+            }
+            for m in explicit[:4]
+            if isinstance(m, dict)
+        ]
+    else:
+        metrics = derive_metrics(resume, limit=4)
     if len(metrics) < 3:
         return ""
     cells = "".join(
