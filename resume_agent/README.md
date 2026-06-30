@@ -21,6 +21,7 @@
 | `improver.py` | 改写模式 A：整份重写 + 确定性反造假校验 + 缺口报告。可配 `strict_highlights/strict_numbers` |
 | `patcher.py` | 改写模式 B（P6）：模型只返回受限 patch，结构字段无路径可改，**结构造假物理不可能** |
 | `resume_diff.py` | 通用递归 diff：全字段展示每轮改动，新增内容标注「请核对」 |
+| `validate.py` | 输入形状校验：管线入口对畸形 JSON Resume fail-fast |
 | `resume_agent.py` | 闭环编排：评估-改写-渲染 + 收敛 + 保留最高分 + 报告 |
 | `brand.py` | `~/.config/kami/brand.md` 兜底接入（仅填缺失字段） |
 | `questionnaire.py` | 从零引导问卷 -> JSON Resume |
@@ -63,10 +64,10 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 ## 测试
 
 ```bash
-for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher; do python3 $t.py; done
+for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 48 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 57 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 

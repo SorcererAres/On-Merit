@@ -500,6 +500,8 @@ def render_html(
     role: Optional[str] = None,
 ) -> str:
     """JSON Resume dict -> 完整 HTML 字符串。"""
+    from validate import ensure_valid
+    ensure_valid(resume)  # 入口校验：畸形结构立刻报错而非深处崩溃
     basics = resume.get("basics") or {}
     # role 降级链：显式参数 > meta.role（问卷填写） > 第一段工作的 position
     if role is None:

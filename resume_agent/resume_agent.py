@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 from improver import ImproveResult, improve, total_score, fact_gap_report
 from patcher import improve_via_patch
 from resume_diff import Change, diff_resume, format_diff
+from validate import ensure_valid
 import kami_adapter
 
 EvaluateFn = Callable[[Dict[str, Any]], Dict[str, Any]]  # resume -> evaluation(dict)
@@ -72,7 +73,9 @@ def run(
     """跑评估-改写闭环，返回最高分版本 + 轨迹。
 
     关键点：始终保留「历史最高分」版本，改写被拒或反而变差时不丢分。
+    入口先做结构校验，畸形简历立刻报错而非在深处崩溃。
     """
+    ensure_valid(resume)
     current = copy.deepcopy(resume)
     best_resume = copy.deepcopy(resume)
     best_score = float("-inf")
