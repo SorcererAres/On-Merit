@@ -69,6 +69,7 @@ def run(
     strict_highlights: bool = False,
     strict_numbers: bool = True,
     mode: str = "rewrite",
+    rubric: Any = None,
 ) -> AgentResult:
     """跑评估-改写闭环，返回最高分版本 + 轨迹。
 
@@ -88,7 +89,7 @@ def run(
         evaluation = evaluate_fn(current)
         score = total_score(evaluation)
         scores.append(score)
-        gaps = fact_gap_report(current, evaluation)
+        gaps = fact_gap_report(current, evaluation, rubric)
 
         if score > best_score:
             best_score, best_resume, best_eval = score, copy.deepcopy(current), evaluation
@@ -102,12 +103,13 @@ def run(
 
         if mode == "patch":
             result: ImproveResult = improve_via_patch(
-                current, evaluation, chat_fn, strict_numbers=strict_numbers
+                current, evaluation, chat_fn, strict_numbers=strict_numbers, rubric=rubric
             )
         else:
             result = improve(
                 current, evaluation, chat_fn,
                 strict_highlights=strict_highlights, strict_numbers=strict_numbers,
+                rubric=rubric,
             )
         history[-1].accepted = result.accepted
         history[-1].violations = [f"[{v.severity}] {v.kind}: {v.detail}" for v in result.violations]
@@ -189,6 +191,20 @@ def build_real_deps(model_name: Optional[str] = None):
     return evaluate_fn, make_hiring_agent_chat_fn(model_name)
 
 
+def build_rubric_deps(rubric_name: str, model_name: Optional[str] = None):
+    """返回 (evaluate_fn, chat_fn, rubric)，用角色无关评估器（rubrics + evaluate.py）。
+
+    不依赖 hiring-agent 写死评估器，对 engineer / designer / 自定义 rubric 通用。
+    """
+    from improver import make_hiring_agent_chat_fn
+    from rubrics import get_rubric
+    from evaluate import make_evaluate_fn
+
+    rubric = get_rubric(rubric_name)
+    chat_fn = make_hiring_agent_chat_fn(model_name)
+    return make_evaluate_fn(rubric, chat_fn), chat_fn, rubric
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Resume Agent 评估-改写-渲染闭环")
     ap.add_argument("resume_json", help="起始 JSON Resume 路径")
@@ -213,6 +229,10 @@ def main() -> None:
         "--mode", default="rewrite", choices=["rewrite", "patch"],
         help="改写模式：rewrite=整份重写+校验；patch=只返回受限补丁（结构造假物理不可能，更严）",
     )
+    ap.add_argument(
+        "--role", default="engineer", choices=["engineer", "designer"],
+        help="评分岗位：engineer=软件工程（默认）；designer=产品/UX 设计师（设计专属维度）",
+    )
     args = ap.parse_args()
 
     resume = json.loads(Path(args.resume_json).read_text("utf-8"))
@@ -230,13 +250,19 @@ def main() -> None:
                 lang = b_lang
             print(f"OK: 已应用 brand.md（兜底字段，语言={lang}）")
 
-    evaluate_fn, chat_fn = build_real_deps(args.model)
+    # designer 走角色无关 rubric 评估器；engineer 默认沿用 hiring-agent 评估器
+    rubric = None
+    if args.role == "designer":
+        evaluate_fn, chat_fn, rubric = build_rubric_deps(args.role, args.model)
+        print(f"OK: 使用「{rubric.role}」评分维度（满分 {rubric.total_max()}）")
+    else:
+        evaluate_fn, chat_fn = build_real_deps(args.model)
     result = run(
         resume, evaluate_fn, chat_fn,
         target=args.target, max_rounds=args.max_rounds, lang=lang,
         strict_highlights=args.strict_highlights,
         strict_numbers=not args.allow_new_numbers,
-        mode=args.mode,
+        mode=args.mode, rubric=rubric,
     )
     print(format_report(result))
 

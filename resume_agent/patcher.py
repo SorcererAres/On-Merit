@@ -253,9 +253,10 @@ def improve_via_patch(
     chat_fn: ChatFn,
     *,
     strict_numbers: bool = True,
+    rubric: Any = None,
 ) -> ImproveResult:
     """patch-only 改写。结构造假物理不可能；仍校验可编辑文本里的凭空数字。"""
-    gaps = fact_gap_report(resume, evaluation)
+    gaps = fact_gap_report(resume, evaluation, rubric)
     messages = build_patch_prompt(resume, evaluation)
     try:
         raw = chat_fn(messages)

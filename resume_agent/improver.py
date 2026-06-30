@@ -231,13 +231,19 @@ def validate_no_fabrication(
 # 事实层缺口报告（不自动改写，提示用户补真实材料）
 # --------------------------------------------------------------------------- #
 def fact_gap_report(
-    resume: Dict[str, Any], evaluation: Dict[str, Any]
+    resume: Dict[str, Any], evaluation: Dict[str, Any], rubric: Any = None
 ) -> List[str]:
+    """事实层缺口（不自动改写，提示补真实材料）。
+
+    rubric 提供时用其岗位专属 gap_fn（设计师看作品集/量化，工程师看开源）；
+    不提供时回退默认工程师逻辑（向后兼容）。
+    """
+    if rubric is not None and getattr(rubric, "gap_fn", None):
+        return rubric.gap_fn(resume, evaluation)
+
     gaps: List[str] = []
     scores = evaluation.get("scores") or {}
-
-    os_score = float((scores.get("open_source") or {}).get("score", 0))
-    if os_score <= 10:
+    if "open_source" in scores and float((scores.get("open_source") or {}).get("score", 0)) <= 10:
         gaps.append(
             "开源分偏低：评分只认对【他人项目】的贡献。这是事实层缺口，"
             "需你真实补充对外部仓库的 PR / issue / 维护记录，改写无法提分。"
@@ -288,14 +294,16 @@ def improve(
     *,
     strict_highlights: bool = False,
     strict_numbers: bool = True,
+    rubric: Any = None,
 ) -> ImproveResult:
     """跑一次事实约束改写。
 
     硬违规（error）-> 拒绝改写、回退原简历，保证不虚构。
     软违规（warn）-> 接受但在报告里标注，交人工确认。
     strict_highlights / strict_numbers -> 见 validate_no_fabrication。
+    rubric -> 岗位专属事实缺口检查（见 fact_gap_report）。
     """
-    gaps = fact_gap_report(resume, evaluation)
+    gaps = fact_gap_report(resume, evaluation, rubric)
     messages = build_improve_prompt(resume, evaluation)
     try:
         raw = chat_fn(messages)
