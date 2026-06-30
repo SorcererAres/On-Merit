@@ -66,15 +66,15 @@ def test_match_fabricated_evidence_downgraded():
 
 
 def test_grounding_tolerates_paraphrase():
-    """转述过的真证据（高 bigram 重叠）应通过；凭空编造（低重叠）仍被拦。"""
-    rn = jm._norm(jm.resume_to_text(RESUME))
-    rs = jm._shingles(jm.resume_to_text(RESUME))
-    # 真经历的轻微转述：原文「主导设计系统搭建，设计效率提升 40%」
-    assert jm._grounded("主导设计系统搭建，效率提升 40%", rn, rs)        # 转述，高重叠
-    assert jm._grounded("小V联盟移动端 0-1 设计", rn, rs)                # 原文精确
-    # 编造：与简历几乎不重叠
-    assert not jm._grounded("曾任谷歌 P9 带 50 人团队", rn, rs)
-    print("OK: grounding 容转述、拦编造")
+    """逐字段 grounding：转述的真证据通过；编造/跨字段拼接被拦。"""
+    fu = jm._field_units(jm.resume_to_text(RESUME))
+    assert jm._grounded("主导设计系统搭建，效率提升 40%", fu)   # 转述，落在某字段
+    assert jm._grounded("小V联盟移动端 0-1 设计", fu)           # 原文
+    assert jm._grounded("Figma", fu)                            # 短证据精确匹配
+    assert not jm._grounded("曾任谷歌 P9 带 50 人团队", fu)     # 编造
+    # 跨字段拼接：两个不同字段的真片段拼一起 -> 任一单字段都不达标 -> 拦下
+    assert not jm._grounded("主导设计系统搭建并服务 1 亿海外用户增长 80%", fu)
+    print("OK: 逐字段 grounding（容转述、拦编造与跨字段拼接）")
 
 
 def test_must_have_gaps_and_coverage_pct():
@@ -98,8 +98,35 @@ def test_report_renders():
         ensure_ascii=False)
     rep = jm.match_requirements(REQS, RESUME, chat)
     txt = jm.format_match_report(rep)
-    assert "JD 匹配报告" in txt and "覆盖度" in txt and "硬性缺口" in txt
+    assert "JD 匹配报告" in txt and "证据覆盖指数" in txt and "硬性风险" in txt
     print("OK: 报告渲染")
+
+
+def test_partial_must_is_risk():
+    """证据弱的 must 要求也算硬性风险（不只 missing）。"""
+    matches = [
+        {"coverage": "covered", "evidence": "5 年 UX 设计经验", "suggestion": ""},
+        {"coverage": "partial", "evidence": "Figma", "suggestion": ""},  # must + partial -> 风险
+        {"coverage": "missing", "evidence": "", "suggestion": ""},
+        {"coverage": "missing", "evidence": "", "suggestion": ""},
+    ]
+    chat = lambda m: json.dumps(matches, ensure_ascii=False)
+    rep = jm.match_requirements(REQS, RESUME, chat)
+    risks = {r["text"]: r["coverage"] for r in rep.summary["must_risks"]}
+    assert "精通 Figma 与设计系统" in risks and risks["精通 Figma 与设计系统"] == "partial"
+    assert rep.summary["must_total"] == 3 and rep.summary["must_covered"] == 1
+    print("OK: partial-must 计入硬性风险")
+
+
+def test_match_length_mismatch_retries():
+    """匹配项数少于要求数 -> 重试，仍不足则抛（不静默补 missing）。"""
+    chat = lambda m: json.dumps([{"coverage": "covered", "evidence": "5 年 UX 设计经验"}])  # 只 1 条
+    try:
+        jm.match_requirements(REQS, RESUME, chat, retries=1)
+        assert False
+    except ValueError as e:
+        assert "多次失败" in str(e)
+    print("OK: 匹配项数不足触发重试/失败")
 
 
 def _report_with(coverages):
@@ -157,6 +184,8 @@ if __name__ == "__main__":
     test_grounding_tolerates_paraphrase()
     test_must_have_gaps_and_coverage_pct()
     test_report_renders()
+    test_partial_must_is_risk()
+    test_match_length_mismatch_retries()
     test_improve_for_jd_strengthens_partial()
     test_improve_for_jd_new_number_reverts()
     test_improve_for_jd_no_partial()
