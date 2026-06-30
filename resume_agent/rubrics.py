@@ -48,16 +48,23 @@ FAIRNESS = """## 公平性（强制）
 # --------------------------------------------------------------------------- #
 # 缺口检查
 # --------------------------------------------------------------------------- #
+def _is_http_url(v: Any) -> bool:
+    return isinstance(v, str) and v.strip().lower().startswith(("http://", "https://"))
+
+
 def _has_portfolio_link(resume: Dict[str, Any]) -> bool:
+    """是否存在任一有效 http(s) 链接（个人站 / 主页 / 项目）。
+
+    缺口提示用：只要有任一可点链接就不报「缺作品集链接」，避免对 network 字段措辞的脆弱依赖。
+    """
     basics = resume.get("basics") or {}
-    if basics.get("url"):
+    if _is_http_url(basics.get("url")):
         return True
     for p in basics.get("profiles") or []:
-        net = (p.get("network") or "").lower()
-        if p.get("url") and any(k in net for k in ("behance", "dribbble", "站酷", "zcool", "portfolio")):
+        if isinstance(p, dict) and _is_http_url(p.get("url")):
             return True
     for proj in resume.get("projects") or []:
-        if proj.get("url"):
+        if isinstance(proj, dict) and _is_http_url(proj.get("url")):
             return True
     return False
 

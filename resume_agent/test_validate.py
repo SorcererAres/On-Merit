@@ -76,6 +76,21 @@ def test_render_entry_rejects_malformed():
     print("OK: render_html 入口拒绝畸形输入")
 
 
+def test_validator_no_crash_on_nonlist_section():
+    """Codex 复核：validator 自身不能被非 list section 击穿（曾 TypeError）。"""
+    errs = validate.validate_resume({"work": 1})  # 不抛异常
+    assert any("work 必须是列表" in e for e in errs)
+    print("OK: validator 不被非 list 击穿")
+
+
+def test_string_field_checks():
+    """Codex 复核：补 projects[].url / profiles[].network 字符串校验（下游会崩）。"""
+    assert any("projects[0].url" in e for e in validate.validate_resume({"projects": [{"url": 123}]}))
+    errs = validate.validate_resume({"basics": {"profiles": [{"network": 1, "url": 2}]}})
+    assert any("network" in e for e in errs) and any("url" in e for e in errs)
+    print("OK: url / network 字符串校验")
+
+
 if __name__ == "__main__":
     test_sample_is_valid()
     test_root_not_object()
@@ -86,4 +101,6 @@ if __name__ == "__main__":
     test_ensure_valid_raises()
     test_pipeline_entry_rejects_malformed()
     test_render_entry_rejects_malformed()
+    test_validator_no_crash_on_nonlist_section()
+    test_string_field_checks()
     print("\nALL PASS")

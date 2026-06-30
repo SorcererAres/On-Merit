@@ -24,6 +24,11 @@ _STR_LISTS = [
     ("projects", "technologies"), ("projects", "skills"),
     ("skills", "keywords"), ("education", "courses"),
 ]
+# (section, 字段) -> 非空时必须是字符串（下游 resume_to_text / safe_url / .lower() 依赖）
+_STR_FIELDS = [
+    ("work", "url"), ("volunteer", "url"), ("projects", "url"),
+    ("certificates", "url"), ("publications", "url"), ("education", "url"),
+]
 
 
 def _is_str_list(v: Any) -> bool:
@@ -44,6 +49,8 @@ def validate_resume(resume: Any) -> List[str]:
         else:
             if basics.get("name") is not None and not isinstance(basics["name"], str):
                 errors.append("basics.name 必须是字符串")
+            if basics.get("url") is not None and not isinstance(basics["url"], str):
+                errors.append("basics.url 必须是字符串")
             loc = basics.get("location")
             if loc is not None and not isinstance(loc, dict):
                 errors.append("basics.location 必须是对象")
@@ -51,8 +58,15 @@ def validate_resume(resume: Any) -> List[str]:
             if profs is not None:
                 if not isinstance(profs, list):
                     errors.append("basics.profiles 必须是列表")
-                elif not all(isinstance(p, dict) for p in profs):
-                    errors.append("basics.profiles 每项必须是对象")
+                else:
+                    for i, p in enumerate(profs):
+                        if not isinstance(p, dict):
+                            errors.append(f"basics.profiles[{i}] 必须是对象")
+                            continue
+                        if p.get("network") is not None and not isinstance(p["network"], str):
+                            errors.append(f"basics.profiles[{i}].network 必须是字符串")
+                        if p.get("url") is not None and not isinstance(p["url"], str):
+                            errors.append(f"basics.profiles[{i}].url 必须是字符串")
 
     for sec in _LIST_OF_DICT:
         val = resume.get(sec)
@@ -65,13 +79,26 @@ def validate_resume(resume: Any) -> List[str]:
             if not isinstance(item, dict):
                 errors.append(f"{sec}[{i}] 必须是对象，实际是 {type(item).__name__}")
 
+    # 嵌套字段校验：仅当 section 确实是 list 时进入，避免被非 list 输入击穿
+    def _dict_items(sec: str):
+        val = resume.get(sec)
+        if not isinstance(val, list):
+            return
+        for i, item in enumerate(val):
+            if isinstance(item, dict):
+                yield i, item
+
     for sec, field in _STR_LISTS:
-        for i, item in enumerate(resume.get(sec) or []):
-            if not isinstance(item, dict):
-                continue  # 上面已报
+        for i, item in _dict_items(sec):
             v = item.get(field)
             if v is not None and not _is_str_list(v):
                 errors.append(f"{sec}[{i}].{field} 必须是字符串列表")
+
+    for sec, field in _STR_FIELDS:
+        for i, item in _dict_items(sec):
+            v = item.get(field)
+            if v is not None and not isinstance(v, str):
+                errors.append(f"{sec}[{i}].{field} 必须是字符串")
 
     return errors
 
