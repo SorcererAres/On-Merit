@@ -102,6 +102,45 @@ def test_report_renders():
     print("OK: 报告渲染")
 
 
+def _report_with(coverages):
+    """构造一个 MatchReport（指定每条要求的 coverage）。"""
+    matches = [{"coverage": c, "evidence": "", "suggestion": "", "grounded": False} for c in coverages]
+    return jm.MatchReport(REQS, matches, {"must_have_gaps": ["大规模 C 端用户增长"]})
+
+
+def test_improve_for_jd_strengthens_partial():
+    """对 partial 项做 patch 改写：合法补丁应用，结构字段改不动。"""
+    rep = _report_with(["covered", "covered", "partial", "missing"])
+    def chat(m):
+        return json.dumps([
+            {"path": "basics.summary", "text": "资深 UX 设计师，深耕 AI 多模态全链路。"},  # 合法（字段存在）
+            {"path": "work[0].name", "text": "谷歌"},                                     # 越权 -> 拒
+        ], ensure_ascii=False)
+    res = jm.improve_for_jd(RESUME, rep, chat)
+    assert "basics.summary" in res.applied
+    assert res.resume["work"][0]["name"] == "某公司"          # 公司名没动
+    assert "大规模 C 端用户增长" in res.must_supplements[0]   # 缺失 must -> 需真实补充
+    print("OK: JD 弱项强化 + 结构不可篡改 + 缺失项需补充")
+
+
+def test_improve_for_jd_new_number_reverts():
+    """改写引入原文没有的数字 -> 整体回退（反造假）。"""
+    rep = _report_with(["partial", "missing", "missing", "missing"])
+    chat = lambda m: json.dumps([{"path": "basics.summary", "text": "服务 9999 万用户。"}], ensure_ascii=False)
+    res = jm.improve_for_jd(RESUME, rep, chat)
+    assert res.applied == [] and res.resume == RESUME       # 回退
+    assert any("9999" in n for n in res.notes)
+    print("OK: JD 改写凭空数字被回退")
+
+
+def test_improve_for_jd_no_partial():
+    """没有 partial 项 -> 不改写，只提示缺失项需补充。"""
+    rep = _report_with(["covered", "covered", "missing", "missing"])
+    res = jm.improve_for_jd(RESUME, rep, lambda m: "[]")
+    assert res.applied == [] and res.resume == RESUME
+    print("OK: 无弱项不改写")
+
+
 def test_empty_jd_rejected():
     try:
         jm.extract_requirements("  ", lambda m: "[]")
@@ -118,5 +157,8 @@ if __name__ == "__main__":
     test_grounding_tolerates_paraphrase()
     test_must_have_gaps_and_coverage_pct()
     test_report_renders()
+    test_improve_for_jd_strengthens_partial()
+    test_improve_for_jd_new_number_reverts()
+    test_improve_for_jd_no_partial()
     test_empty_jd_rejected()
     print("\nALL PASS")

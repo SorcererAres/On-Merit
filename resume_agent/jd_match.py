@@ -236,6 +236,84 @@ def jd_match(jd_text: str, resume: Dict[str, Any], chat_fn: ChatFn) -> MatchRepo
 
 
 # --------------------------------------------------------------------------- #
+# 3) 针对 JD 的事实约束改写（接进闭环）
+# --------------------------------------------------------------------------- #
+JD_PATCH_SYSTEM = (
+    "你在帮求职者把简历改得更贴合一个具体岗位。只能改写下方列出的字段（path），"
+    "在【绝不编造】前提下，把相关文字改得更突出、更贴合给定要求（STAR 结构、突出已有数字）。\n"
+    "不得引入原文没有的数字、经历、技术或客户。只返回 {path, text} 的 JSON 数组。"
+)
+
+JD_PATCH_USER = """这些 JD 要求，简历里【有相关经历但表述偏弱】，请强化对应文字（不编造）：
+{weak_reqs}
+
+可编辑字段（path 只能从这里选）及当前内容：
+{fields}
+
+返回 JSON 数组 [{{"path": ..., "text": 改写后文字}}]，只改需要强化的字段，不要解释。"""
+
+
+def build_jd_patch_prompt(resume: Dict[str, Any], weak_reqs: List[str]) -> List[Dict[str, str]]:
+    from patcher import editable_paths, _read_at
+
+    paths = editable_paths(resume)
+    fields = "\n".join(f"- {p}: {_read_at(resume, p)}" for p in paths)
+    reqs = "\n".join(f"- {r}" for r in weak_reqs)
+    return [
+        {"role": "system", "content": JD_PATCH_SYSTEM},
+        {"role": "user", "content": JD_PATCH_USER.format(weak_reqs=reqs, fields=fields)},
+    ]
+
+
+@dataclass
+class JDImproveResult:
+    resume: Dict[str, Any]
+    applied: List[str] = field(default_factory=list)
+    notes: List[str] = field(default_factory=list)   # 拒绝/回退说明
+    must_supplements: List[str] = field(default_factory=list)  # 缺失 must -> 需真实补充
+
+
+def improve_for_jd(
+    resume: Dict[str, Any], report: MatchReport, chat_fn: ChatFn, strict_numbers: bool = True
+) -> JDImproveResult:
+    """针对 JD 的弱项做 patch 改写（复用 patcher 的结构安全 + 数字 grounding）。
+
+    - partial（有真经历但弱）-> 强化表述（不编造）；
+    - missing 的 must-have -> 不改写，列为「需真实补充」。
+    """
+    from patcher import apply_patches, _parse_patches, _new_numbers
+
+    partial = [req["text"] for req, m in zip(report.requirements, report.matches)
+               if m["coverage"] == "partial"]
+    must_supp = list(report.summary.get("must_have_gaps") or [])
+
+    if not partial:
+        return JDImproveResult(resume, [], ["无『证据弱』项可强化（缺失项需真实补充）"], must_supp)
+
+    try:
+        patches = _parse_patches(chat_fn(build_jd_patch_prompt(resume, partial)))
+    except Exception as e:
+        return JDImproveResult(resume, [], [f"改写解析失败：{e}"], must_supp)
+
+    outcome = apply_patches(resume, patches)  # 结构造假物理不可能 + 文本净化
+    invented = _new_numbers(resume, outcome.resume)
+    if invented and strict_numbers:  # 引入原文没有的数字 -> 整体回退
+        return JDImproveResult(
+            resume, [], [f"补丁含原文没有的数字 {sorted(invented)}，已整体回退"], must_supp)
+
+    notes = [f"{p}: {why}" for p, why in outcome.rejected]
+    return JDImproveResult(outcome.resume, outcome.applied, notes, must_supp)
+
+
+def match_and_improve(jd_text: str, resume: Dict[str, Any], chat_fn: ChatFn):
+    """JD 匹配 -> 针对弱项改写 -> 复评匹配。返回 (before, improved_resume, after, jd_improve)。"""
+    before = jd_match(jd_text, resume, chat_fn)
+    imp = improve_for_jd(resume, before, chat_fn)
+    after = match_requirements(before.requirements, imp.resume, chat_fn)
+    return before, imp.resume, after, imp
+
+
+# --------------------------------------------------------------------------- #
 # 报告
 # --------------------------------------------------------------------------- #
 _MARK = {"covered": "[已覆盖]", "partial": "[证据弱]", "missing": "[缺失]"}
@@ -272,15 +350,40 @@ def main() -> None:
     ap.add_argument("resume_json", help="JSON Resume 路径")
     ap.add_argument("--jd", required=True, help="JD 文本文件路径")
     ap.add_argument("--model", default=None)
+    ap.add_argument("--improve", action="store_true", help="针对 JD 弱项改写后复评")
+    ap.add_argument("-o", "--out", help="改写后 JSON Resume 输出路径（配合 --improve）")
     args = ap.parse_args()
 
     from llm import make_chat_fn
     from pathlib import Path
+    from resume_diff import diff_resume, format_diff
 
     resume = json.loads(Path(args.resume_json).read_text("utf-8"))
     jd_text = Path(args.jd).read_text("utf-8")
-    report = jd_match(jd_text, resume, make_chat_fn(args.model))
-    print(format_match_report(report))
+    chat_fn = make_chat_fn(args.model)
+
+    if not args.improve:
+        print(format_match_report(jd_match(jd_text, resume, chat_fn)))
+        return
+
+    before, improved, after, imp = match_and_improve(jd_text, resume, chat_fn)
+    print(f"覆盖度：{before.summary['coverage_pct']}% -> {after.summary['coverage_pct']}%")
+    changes = diff_resume(resume, improved)
+    if changes:
+        print("\n改动（针对 JD 弱项强化，未编造）：")
+        print("\n".join(format_diff(changes, indent="  ")))
+    if imp.notes:
+        print("\n说明：")
+        for n in imp.notes:
+            print(f"  - {n}")
+    if imp.must_supplements:
+        print("\n需真实补充（must-have 缺失，改写无法替代）：")
+        for s in imp.must_supplements:
+            print(f"  - {s}")
+    print("\n" + format_match_report(after))
+    if args.out:
+        Path(args.out).write_text(json.dumps(improved, ensure_ascii=False, indent=2), "utf-8")
+        print(f"\nOK: 改写后简历 -> {args.out}")
 
 
 if __name__ == "__main__":
