@@ -36,6 +36,19 @@ def test_scoring():
     print("OK: 评分与排序")
 
 
+def test_total_score_clamped_and_robust():
+    """Codex 复核：巨额扣分不再变负数；非数/越界值容错；夹到 [0, 满分和+20]。"""
+    huge_ded = {"scores": {"a": {"score": 5, "max": 10}},
+                "bonus_points": {"total": 0}, "deductions": {"total": 999}}
+    assert total_score(huge_ded) == 0.0  # 不再 -994
+    # bonus 越界 + 非数分数容错
+    weird = {"scores": {"a": {"score": "x", "max": 10}, "b": {"score": 10, "max": 10}},
+             "bonus_points": {"total": float("inf")}, "deductions": {"total": "y"}}
+    s = total_score(weird)
+    assert 0.0 <= s <= 40.0  # 两类满分 20 + bonus 上限 20
+    print("OK: total_score 夹紧且抗非数")
+
+
 def test_gap_report():
     gaps = fact_gap_report(RESUME, EVAL)
     assert any("开源分偏低" in g for g in gaps)
@@ -108,6 +121,7 @@ def test_chat_failure_handled():
 
 if __name__ == "__main__":
     test_scoring()
+    test_total_score_clamped_and_robust()
     test_gap_report()
     test_legit_rewrite_accepted()
     test_fabricated_company_rejected()

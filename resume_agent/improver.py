@@ -33,24 +33,42 @@ _YEAR = re.compile(r"^(19|20)\d{2}$")
 # --------------------------------------------------------------------------- #
 # 评分工具
 # --------------------------------------------------------------------------- #
+def _num(v: Any, default: float = 0.0) -> float:
+    """容错取有限数值；非数 / bool / NaN / Inf -> default。"""
+    import math
+    if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+        return float(v)
+    return default
+
+
 def total_score(evaluation: Dict[str, Any]) -> float:
-    """从 EvaluationData(dict) 算总分：四类（封顶）+ bonus - deductions。"""
-    scores = evaluation.get("scores") or {}
+    """总分：各类（封顶）+ bonus - deductions，最终夹到 [0, 各类满分和 + 20]。
+
+    夹紧防止 LLM/扣分把总分弄成负数或越界（评审反复点出）。各类满分和通常 100，故上限 120。
+    """
+    scores = evaluation.get("scores") if isinstance(evaluation, dict) else {}
+    scores = scores if isinstance(scores, dict) else {}
     total = 0.0
+    cat_max_sum = 0.0
     for cat in scores.values():
-        total += min(float(cat.get("score", 0)), float(cat.get("max", 0)))
-    total += float((evaluation.get("bonus_points") or {}).get("total", 0))
-    total -= float((evaluation.get("deductions") or {}).get("total", 0))
-    return round(total, 1)
+        cat = cat if isinstance(cat, dict) else {}
+        mx = _num(cat.get("max", 0))
+        cat_max_sum += mx
+        total += min(_num(cat.get("score", 0)), mx)
+    total += _num((evaluation.get("bonus_points") or {}).get("total", 0))
+    total -= _num((evaluation.get("deductions") or {}).get("total", 0))
+    return round(max(0.0, min(total, cat_max_sum + 20.0)), 1)
 
 
 def weakest_categories(evaluation: Dict[str, Any]) -> List[str]:
     """按「得分率」从低到高排序的类别名，用来引导改写优先级。"""
-    scores = evaluation.get("scores") or {}
+    scores = evaluation.get("scores") if isinstance(evaluation, dict) else {}
+    scores = scores if isinstance(scores, dict) else {}
     ratios: List[Tuple[float, str]] = []
     for name, cat in scores.items():
-        mx = float(cat.get("max", 1)) or 1
-        ratios.append((float(cat.get("score", 0)) / mx, name))
+        cat = cat if isinstance(cat, dict) else {}
+        mx = _num(cat.get("max", 1)) or 1
+        ratios.append((_num(cat.get("score", 0)) / mx, name))
     ratios.sort()
     return [name for _, name in ratios]
 

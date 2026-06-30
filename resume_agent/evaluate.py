@@ -99,6 +99,7 @@ def build_criteria_prompt(rubric: Rubric, resume_text: str) -> List[Dict[str, st
 
 ## 加分（bonus，上限 20）
 {rubric.bonus}
+注意：bonus 只记**维度之外**的稀缺成就；已在上述维度评分中体现的事实不要重复加分。
 
 ## 扣分（deductions）
 {rubric.deductions}

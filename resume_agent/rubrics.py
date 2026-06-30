@@ -4,9 +4,7 @@ hiring-agent 的评分标准写死给「软件工程实习生」（开源/编码
 没有意义。这里把 rubric 抽象出来：每个岗位声明自己的评分维度、加减分规则、公平性约束和
 事实层缺口检查，评估器据此生成 prompt 与缺口报告。
 
-内置两套：
-- ENGINEER：对齐 hiring-agent 原四维（open_source/self_projects/production/technical_skills）。
-- DESIGNER：产品/UX 设计师维度（设计功底/商业影响/流程方法/经验广度）。
+内置五套：ENGINEER（对齐 hiring-agent 原四维）、DESIGNER、PM、DATA、MARKETING。
 
 所有 rubric 共用同一套输出结构（scores/bonus/deductions/key_strengths/areas_for_improvement），
 因此 total_score / improver / resume_agent 无需关心具体岗位。
@@ -14,6 +12,7 @@ hiring-agent 的评分标准写死给「软件工程实习生」（开源/编码
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List
 
@@ -49,56 +48,101 @@ FAIRNESS = """## 公平性（强制）
 # 缺口检查
 # --------------------------------------------------------------------------- #
 def _is_http_url(v: Any) -> bool:
-    return isinstance(v, str) and v.strip().lower().startswith(("http://", "https://"))
+    """合法 http(s) URL：scheme 为 http(s) 且有非空 netloc（排除 `https://` 这类空壳）。"""
+    if not isinstance(v, str):
+        return False
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(v.strip())
+        return u.scheme in ("http", "https") and bool(u.netloc)
+    except Exception:
+        return False
+
+
+def _dicts(resume: Any, key: str) -> List[Dict[str, Any]]:
+    """安全取 section 里的 dict 元素：非 dict resume / 非 list section / 非 dict 元素全忽略。"""
+    if not isinstance(resume, dict):
+        return []
+    v = resume.get(key)
+    return [x for x in v if isinstance(x, dict)] if isinstance(v, list) else []
+
+
+# 作品集平台关键词：用于把「设计/作品平台主页」与普通主页（LinkedIn 等）区分开
+_PORTFOLIO_NETS = (
+    "behance", "dribbble", "站酷", "zcool", "portfolio", "作品", "个人站", "personal site",
+)
 
 
 def _has_portfolio_link(resume: Dict[str, Any]) -> bool:
-    """是否存在任一有效 http(s) 链接（个人站 / 主页 / 项目）。
+    """是否存在「作品集类」链接：个人站 / 项目案例链接 / 设计作品平台主页。
 
-    缺口提示用：只要有任一可点链接就不报「缺作品集链接」，避免对 network 字段措辞的脆弱依赖。
+    刻意**不把** LinkedIn 等通用社交主页当作品集（否则会对设计岗造成假阴性）。
     """
-    basics = resume.get("basics") or {}
-    if _is_http_url(basics.get("url")):
+    basics = resume.get("basics") if isinstance(resume, dict) else None
+    basics = basics if isinstance(basics, dict) else {}
+    if _is_http_url(basics.get("url")):          # 个人站通常即作品集
         return True
-    for p in basics.get("profiles") or []:
+    for proj in _dicts(resume, "projects"):       # 项目案例链接
+        if _is_http_url(proj.get("url")):
+            return True
+    profiles = basics.get("profiles")
+    for p in (profiles if isinstance(profiles, list) else []):
         if isinstance(p, dict) and _is_http_url(p.get("url")):
-            return True
-    for proj in resume.get("projects") or []:
-        if isinstance(proj, dict) and _is_http_url(proj.get("url")):
-            return True
+            net = (p.get("network") or "").lower()
+            if any(k in net for k in _PORTFOLIO_NETS):
+                return True
     return False
+
+
+# 量化影响：数字 + 指标单位/百分比（排除纯年份/版本号/团队人数等）
+_IMPACT_RE = re.compile(
+    r"\d+(?:\.\d+)?\s*(?:%|％|万|亿|倍|分|元|美元|次|w|k|x|\+)"
+)
+
+
+def _impact_texts(resume: Dict[str, Any]) -> List[str]:
+    """收集成果类字段文本（summary/highlights/description），不扫日期/联系方式。"""
+    out: List[str] = []
+    for sec in ("work", "volunteer"):
+        for it in _dicts(resume, sec):
+            if isinstance(it.get("summary"), str):
+                out.append(it["summary"])
+            out += [h for h in (it.get("highlights") or []) if isinstance(h, str)]
+    for p in _dicts(resume, "projects"):
+        if isinstance(p.get("description"), str):
+            out.append(p["description"])
+        out += [h for h in (p.get("highlights") or []) if isinstance(h, str)]
+    return out
+
+
+def _safe_score(evaluation: Any, key: str):
+    """安全取某维度得分；缺失/非 dict/非有限数 -> None（无法判断，不当 0 误报）。"""
+    scores = evaluation.get("scores") if isinstance(evaluation, dict) else None
+    cat = scores.get(key) if isinstance(scores, dict) else None
+    v = cat.get("score") if isinstance(cat, dict) else None
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def _engineer_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
     gaps: List[str] = []
-    scores = evaluation.get("scores") or {}
-    if float((scores.get("open_source") or {}).get("score", 0)) <= 10:
+    os_score = _safe_score(evaluation, "open_source")
+    if os_score is not None and os_score <= 10:
         gaps.append(
             "开源分偏低：评分只认对【他人项目】的贡献。这是事实层缺口，"
             "需真实补充对外部仓库的 PR / issue / 维护记录，改写无法提分。"
         )
-    if not resume.get("projects"):
+    projects = _dicts(resume, "projects")
+    if not projects:
         gaps.append("简历没有 projects 条目：需真实补充 1-3 个有链接的项目。")
-    for p in resume.get("projects") or []:
-        if not p.get("url"):
-            gaps.append(f"项目「{p.get('name', '?')}」缺少链接：无链接会被扣分，请补真实地址。")
+    for p in projects:
+        if not _is_http_url(p.get("url")):
+            gaps.append(f"项目「{p.get('name', '?')}」缺少有效链接：无链接会被扣分，请补真实地址。")
     return gaps
 
 
 def _has_quantified_impact(resume: Dict[str, Any]) -> bool:
-    """work/项目 成果里是否出现过数字（量化影响的弱信号）。"""
-    import re
-    for w in resume.get("work") or []:
-        if isinstance(w, dict):
-            for h in (w.get("highlights") or []):
-                if isinstance(h, str) and re.search(r"\d", h):
-                    return True
-    for p in resume.get("projects") or []:
-        if isinstance(p, dict):
-            for h in (p.get("highlights") or []):
-                if isinstance(h, str) and re.search(r"\d", h):
-                    return True
-    return False
+    """成果字段里是否出现「数字 + 指标单位/百分比」（排除年份/版本/团队人数等噪声）。"""
+    return any(_IMPACT_RE.search(t) for t in _impact_texts(resume))
 
 
 def _quant_gap(resume: Dict[str, Any], metric_hint: str) -> List[str]:
@@ -129,7 +173,11 @@ def _pm_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
 
 def _data_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
     gaps = _quant_gap(resume, "业务收益/转化提升/成本下降/模型效果")
-    if not (_has_portfolio_link(resume) or resume.get("projects")):
+    # 要求至少一个「结构合法且有内容（名称或有效链接）」的项目，空壳项目不算
+    has_real_project = any(
+        p.get("name") or _is_http_url(p.get("url")) for p in _dicts(resume, "projects")
+    )
+    if not (_has_portfolio_link(resume) or has_real_project):
         gaps.append(
             "缺分析作品/项目：数据岗看可验证的分析或建模产出。建议补 GitHub / Kaggle / "
             "分析报告链接，或在简历中补 1-2 个有方法与结论的项目。"
@@ -177,7 +225,7 @@ DESIGNER = Rubric(
         Category("scope", "经验广度与复杂度", 20,
                  "0-1 从 0 到 1、跨端（Web/iOS/Android/小程序/VR）、AI/Agent 等前沿方向、行业难度。"),
     ],
-    bonus="作品集链接 +3；知名公司/独角兽经历 +2；设计获奖 +3；权威设计认证 +2；"
+    bonus="作品集链接 +3；大规模/高复杂度业务的可验证责任与成果 +2；设计获奖 +3；权威设计认证 +2；"
           "AI/Agent 等前沿方向实战 +3；主导设计系统/组件库 +2；多个 0-1 项目 +2。上限 20。",
     deductions="无作品集/项目链接 -3~-5；全程无任何量化结果 -3~-5；纯职责罗列无成果 -2~-4。",
     gap_fn=_designer_gaps,
@@ -197,7 +245,7 @@ PM = Rubric(
         Category("strategy", "战略与视野", 15,
                  "市场与竞品理解、商业模式、长期规划与方向判断。"),
     ],
-    bonus="知名公司/独角兽 +2；从 0 到 1 主导核心产品 +3；显著营收/增长贡献 +3；"
+    bonus="大规模/高复杂度业务的可验证责任 +2；从 0 到 1 主导核心产品 +3；显著营收/增长贡献 +3；"
           "AI/前沿方向产品实战 +3；行业稀缺领域经验 +2。上限 20。",
     deductions="全程无任何量化结果 -3~-5；纯功能罗列无判断/取舍 -2~-4；只执行不涉决策 -2。",
     gap_fn=_pm_gaps,
@@ -258,12 +306,34 @@ def get_rubric(name: str) -> Rubric:
 
 
 def _self_check() -> None:
-    """注册自检：类别 key 唯一、满分均为正、各 rubric 维度满分一致（保证报告 /120 通用）。"""
+    """注册自检：用显式 raise（不用 assert，避免 python -O 被剥离）。
+
+    校验：registry 值是 Rubric、role 非空且唯一、categories 非空、key 唯一且为非空字符串、
+    max 为正整数（非 bool）、gap_fn 可调用、各 rubric 维度满分一致（保证报告 /120 通用）。
+    """
+    seen_roles = set()
     for name, r in RUBRICS.items():
+        if not isinstance(r, Rubric):
+            raise TypeError(f"{name} 不是 Rubric")
+        if not (isinstance(r.role, str) and r.role.strip()):
+            raise ValueError(f"{name} role 不能为空")
+        if r.role in seen_roles:
+            raise ValueError(f"role 重复：{r.role}")
+        seen_roles.add(r.role)
+        if not callable(r.gap_fn):
+            raise ValueError(f"{name} gap_fn 不可调用")
+        if not r.categories:
+            raise ValueError(f"{name} categories 不能为空")
         keys = [c.key for c in r.categories]
-        assert len(keys) == len(set(keys)), f"{name} 类别 key 不唯一"
-        assert all(c.max > 0 for c in r.categories), f"{name} 类别满分须为正"
-        assert r.total_max() == 100, f"{name} 维度满分应为 100（实际 {r.total_max()}）"
+        if len(keys) != len(set(keys)):
+            raise ValueError(f"{name} 类别 key 不唯一")
+        for c in r.categories:
+            if not (isinstance(c.key, str) and c.key.strip()):
+                raise ValueError(f"{name} 类别 key 须为非空字符串")
+            if not (isinstance(c.max, int) and not isinstance(c.max, bool) and c.max > 0):
+                raise ValueError(f"{name}.{c.key} max 须为正整数")
+        if r.total_max() != 100:
+            raise ValueError(f"{name} 维度满分应为 100（实际 {r.total_max()}）")
 
 
 _self_check()

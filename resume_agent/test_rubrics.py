@@ -203,12 +203,36 @@ def test_evaluate_retries_on_bad_output():
 
 
 def test_portfolio_link_detection():
-    assert rubrics._has_portfolio_link({"basics": {"url": "https://x.com"}})
-    assert rubrics._has_portfolio_link({"projects": [{"url": "http://y.com"}]})
-    assert rubrics._has_portfolio_link({"basics": {"profiles": [{"network": "Website", "url": "https://behance.net/x"}]}})
-    assert not rubrics._has_portfolio_link({"basics": {"url": "javascript:alert(1)"}})  # 非 http 不算
-    assert not rubrics._has_portfolio_link({"basics": {"name": "x"}})
-    print("OK: 作品集链接判断（任意 http 链接，挡非法协议）")
+    assert rubrics._has_portfolio_link({"basics": {"url": "https://x.com"}})       # 个人站
+    assert rubrics._has_portfolio_link({"projects": [{"url": "http://y.com"}]})    # 项目案例
+    assert rubrics._has_portfolio_link({"basics": {"profiles": [{"network": "Behance", "url": "https://behance.net/x"}]}})
+    # LinkedIn 等通用主页不算作品集（Codex 复核：避免假阴性）
+    assert not rubrics._has_portfolio_link({"basics": {"profiles": [{"network": "LinkedIn", "url": "https://linkedin.com/in/x"}]}})
+    assert not rubrics._has_portfolio_link({"basics": {"url": "javascript:alert(1)"}})  # 非 http
+    assert not rubrics._has_portfolio_link({"basics": {"url": "https://"}})              # 空壳 URL
+    print("OK: 作品集链接判断（个人站/项目/设计平台，排除 LinkedIn 与空壳）")
+
+
+def test_gap_fns_robust_to_malformed():
+    """Codex 复核：gap_fn / helper 不被畸形 resume / evaluation 击穿。"""
+    bad_resume = {"projects": ["坏元素", None, 1], "work": "不是列表"}
+    bad_eval = {"scores": {"open_source": {"score": "N/A", "max": 35}}}
+    # 不抛异常
+    rubrics._engineer_gaps(bad_resume, bad_eval)
+    rubrics._designer_gaps(bad_resume, {"scores": None})
+    rubrics._data_gaps(bad_resume, "不是dict")
+    assert rubrics._has_quantified_impact({"work": 1}) is False
+    assert rubrics._has_portfolio_link(["不是dict"]) is False
+    print("OK: gap_fn 抗畸形输入")
+
+
+def test_quantified_impact_excludes_years():
+    """量化检测：年份/团队人数/版本号不算量化，% 和单位才算。"""
+    assert rubrics._has_quantified_impact({"work": [{"highlights": ["转化率提升 8.76%"]}]})
+    assert rubrics._has_quantified_impact({"work": [{"summary": "效率提升 5 倍"}]})
+    assert not rubrics._has_quantified_impact({"work": [{"highlights": ["2024.08 入职，带 3 位同事"]}]})
+    assert not rubrics._has_quantified_impact({"projects": [{"description": "v1.7.1 版本"}]})
+    print("OK: 量化检测排除年份/版本/人数")
 
 
 if __name__ == "__main__":
@@ -227,4 +251,6 @@ if __name__ == "__main__":
     test_evaluate_runs_validation()
     test_evaluate_retries_on_bad_output()
     test_portfolio_link_detection()
+    test_gap_fns_robust_to_malformed()
+    test_quantified_impact_excludes_years()
     print("\nALL PASS")
