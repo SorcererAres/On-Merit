@@ -32,6 +32,7 @@
 | `validate.py` | 输入形状校验：管线入口对畸形 JSON Resume fail-fast |
 | `rubrics.py` | 可插拔评分维度：engineer / designer / pm / data / marketing（每岗位 4 维、满分 100） |
 | `evaluate.py` | 角色无关 LLM 评估器：按 rubric 评分 + 严格校验 + 公平性脱敏 |
+| `jd_match.py` | **JD ↔ 简历证据映射**：对具体 JD 评覆盖度（已覆盖/证据弱/缺失）+ grounding 反造假（谎报匹配自动降级），产品差异化核心 |
 | `ingest.py` | PDF 简历 -> JSON Resume（PyMuPDF 抽文本 + LLM 结构化 + 校验），补全闭环入口 |
 | `llm.py` | 自包含 LLM provider：Ollama / Gemini -> 统一 chat_fn |
 | `assets/templates/` | vendor 进来的 Kami 简历模板（zh/en/ko），渲染自包含 |
@@ -80,10 +81,10 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 ## 测试
 
 ```bash
-for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm test_ingest; do python3 $t.py; done
+for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm test_ingest test_jd_match; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 95 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 102 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 
