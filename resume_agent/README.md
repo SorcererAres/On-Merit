@@ -15,6 +15,9 @@
 > [hiring-agent](https://github.com/interviewstreet/hiring-agent)（评分）组合而来；现已把所需部分
 > （Kami 模板 vendor 进 `assets/`、评分用自研可插拔 rubric、LLM provider 见 `llm.py`）收进本项目，
 > 两个上游 clone 已归档为根目录 `*.tar.gz`，运行时不再需要。
+>
+> **自包含范围**：代码与模板自包含。**字体不打包**（TsangerJinKai02 等商用受限），模板 @font-face
+> 走 jsDelivr CDN——联网渲染得到 Kami 衬线；离线则回退系统字体（版式在、字形换成系统默认）。
 
 完整设计见上级目录 [`../DESIGN.md`](../DESIGN.md)。
 
@@ -74,10 +77,10 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 ## 测试
 
 ```bash
-for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics; do python3 $t.py; done
+for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 75 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 85 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 

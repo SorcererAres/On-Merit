@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from improver import ImproveResult, improve, total_score, fact_gap_report
+from improver import ImproveResult, improve, total_score, max_total, fact_gap_report
 from patcher import improve_via_patch
 from resume_diff import Change, diff_resume, format_diff
 from validate import ensure_valid
@@ -132,17 +132,19 @@ def run(
 
 
 def format_report(result: AgentResult) -> str:
+    denom = max_total(result.final_evaluation)  # 满分按 rubric 动态推导，不硬编码 120
+    d = f"{denom:g}"
     lines = ["=" * 56, "Resume Agent 闭环报告", "=" * 56]
     lines.append("分数轨迹：")
     for r in result.history:
         flag = "" if r.accepted else "  <- 改写被拒/回退"
-        lines.append(f"  第 {r.index + 1} 轮：{r.score} / 120{flag}")
+        lines.append(f"  第 {r.index + 1} 轮：{r.score} / {d}{flag}")
         for v in r.violations:
             lines.append(f"      {v}")
         if r.changes:
             lines.append("    本轮改动：")
             lines.extend(format_diff(r.changes, indent="      "))
-    lines.append(f"\n最高分：{result.best_score} / 120")
+    lines.append(f"\n最高分：{result.best_score} / {d}")
 
     gaps = result.gaps
     if gaps:

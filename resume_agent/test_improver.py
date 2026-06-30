@@ -36,6 +36,14 @@ def test_scoring():
     print("OK: 评分与排序")
 
 
+def test_max_total_dynamic():
+    from improver import max_total
+    assert max_total(EVAL) == 120.0  # 35+30+25+10=100 + 20
+    assert max_total({"scores": {"a": {"max": 35}, "b": {"max": 25}}}) == 80.0
+    assert max_total({"scores": {}}) == 120.0  # 回退
+    print("OK: max_total 动态满分")
+
+
 def test_total_score_clamped_and_robust():
     """Codex 复核：巨额扣分不再变负数；非数/越界值容错；夹到 [0, 满分和+20]。"""
     huge_ded = {"scores": {"a": {"score": 5, "max": 10}},
@@ -121,6 +129,7 @@ def test_chat_failure_handled():
 
 if __name__ == "__main__":
     test_scoring()
+    test_max_total_dynamic()
     test_total_score_clamped_and_robust()
     test_gap_report()
     test_legit_rewrite_accepted()

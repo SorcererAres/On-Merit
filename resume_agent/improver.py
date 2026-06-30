@@ -60,6 +60,14 @@ def total_score(evaluation: Dict[str, Any]) -> float:
     return round(max(0.0, min(total, cat_max_sum + 20.0)), 1)
 
 
+def max_total(evaluation: Dict[str, Any]) -> float:
+    """该评估的满分：各类满分和 + 20（bonus 上限）。无类别时回退 120。"""
+    scores = evaluation.get("scores") if isinstance(evaluation, dict) else {}
+    scores = scores if isinstance(scores, dict) else {}
+    cat_sum = sum(_num((c if isinstance(c, dict) else {}).get("max", 0)) for c in scores.values())
+    return (cat_sum + 20.0) if cat_sum else 120.0
+
+
 def weakest_categories(evaluation: Dict[str, Any]) -> List[str]:
     """按「得分率」从低到高排序的类别名，用来引导改写优先级。"""
     scores = evaluation.get("scores") if isinstance(evaluation, dict) else {}
