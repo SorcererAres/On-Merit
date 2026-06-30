@@ -85,26 +85,60 @@ def _engineer_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[s
     return gaps
 
 
-def _designer_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
-    gaps: List[str] = []
-    if not _has_portfolio_link(resume):
-        gaps.append(
-            "缺作品集链接：设计岗作品集是硬通货，评分与面试都高度依赖。这是事实层缺口，"
-            "需真实补充 Behance / 站酷 / Dribbble / 个人站作品集地址，改写无法替代。"
-        )
-    # 量化影响缺失：检查 work highlights 是否含数字
+def _has_quantified_impact(resume: Dict[str, Any]) -> bool:
+    """work/项目 成果里是否出现过数字（量化影响的弱信号）。"""
     import re
-    has_number = any(
-        re.search(r"\d", h or "")
-        for w in resume.get("work") or []
-        for h in (w.get("highlights") or [])
-    )
-    if not has_number:
+    for w in resume.get("work") or []:
+        if isinstance(w, dict):
+            for h in (w.get("highlights") or []):
+                if isinstance(h, str) and re.search(r"\d", h):
+                    return True
+    for p in resume.get("projects") or []:
+        if isinstance(p, dict):
+            for h in (p.get("highlights") or []):
+                if isinstance(h, str) and re.search(r"\d", h):
+                    return True
+    return False
+
+
+def _quant_gap(resume: Dict[str, Any], metric_hint: str) -> List[str]:
+    if _has_quantified_impact(resume):
+        return []
+    return [
+        f"成果缺量化：该岗位影响力评分看{metric_hint}等数据。如有真实数据请补进经历；"
+        "没有的话这是需要去拿的事实，改写不能编造。"
+    ]
+
+
+def _portfolio_gap(resume: Dict[str, Any]) -> List[str]:
+    if _has_portfolio_link(resume):
+        return []
+    return [
+        "缺作品集链接：设计岗作品集是硬通货，评分与面试都高度依赖。这是事实层缺口，"
+        "需真实补充 Behance / 站酷 / Dribbble / 个人站作品集地址，改写无法替代。"
+    ]
+
+
+def _designer_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
+    return _portfolio_gap(resume) + _quant_gap(resume, "转化率/满意度/效率/留存")
+
+
+def _pm_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
+    return _quant_gap(resume, "增长/收入/留存/转化/DAU")
+
+
+def _data_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
+    gaps = _quant_gap(resume, "业务收益/转化提升/成本下降/模型效果")
+    if not (_has_portfolio_link(resume) or resume.get("projects")):
         gaps.append(
-            "成果缺量化：设计影响力评分看转化率/满意度/效率/留存等数据。如有真实数据，"
-            "请补进经历；没有的话这是需要去拿的事实，改写不能编造。"
+            "缺分析作品/项目：数据岗看可验证的分析或建模产出。建议补 GitHub / Kaggle / "
+            "分析报告链接，或在简历中补 1-2 个有方法与结论的项目。"
         )
     return gaps
+
+
+def _marketing_gaps(resume: Dict[str, Any], evaluation: Dict[str, Any]) -> List[str]:
+    return _quant_gap(resume, "拉新/转化率/ROI/留存/GMV")
 
 
 # --------------------------------------------------------------------------- #
@@ -149,9 +183,71 @@ DESIGNER = Rubric(
     gap_fn=_designer_gaps,
 )
 
+PM = Rubric(
+    role="产品经理",
+    position_line="评估一份产品经理简历",
+    categories=[
+        Category("impact", "商业与数据影响", 30,
+                 "可量化的真实结果（增长/收入/留存/转化/DAU）权重最高；"
+                 "有清晰量化且与业务挂钩 22-30；有结果弱量化 10-21；纯职责无成果 1-9。"),
+        Category("product_sense", "产品感与判断", 30,
+                 "需求洞察、优先级与取舍、用户价值定义、对问题本质的把握。"),
+        Category("execution", "落地与交付", 25,
+                 "推动跨团队（设计/研发/数据/业务）、上线节奏、复杂项目从 0 到 1 的交付能力。"),
+        Category("strategy", "战略与视野", 15,
+                 "市场与竞品理解、商业模式、长期规划与方向判断。"),
+    ],
+    bonus="知名公司/独角兽 +2；从 0 到 1 主导核心产品 +3；显著营收/增长贡献 +3；"
+          "AI/前沿方向产品实战 +3；行业稀缺领域经验 +2。上限 20。",
+    deductions="全程无任何量化结果 -3~-5；纯功能罗列无判断/取舍 -2~-4；只执行不涉决策 -2。",
+    gap_fn=_pm_gaps,
+)
+
+DATA = Rubric(
+    role="数据分析师 / 数据科学家",
+    position_line="评估一份数据分析 / 数据科学简历",
+    categories=[
+        Category("technical", "技术能力", 30,
+                 "SQL/Python/统计/机器学习/数据工程与工具栈的深度与广度。"),
+        Category("business_impact", "业务影响", 30,
+                 "分析/模型驱动的真实决策与量化收益（转化提升/成本下降/营收/留存）权重最高。"),
+        Category("rigor", "分析严谨性", 20,
+                 "方法论、实验/AB 设计、因果推断、指标体系、结论的可靠性。"),
+        Category("communication", "沟通与落地", 20,
+                 "数据可视化、向业务讲清洞察、推动决策与行动落地的能力。"),
+    ],
+    bonus="高影响分析直接驱动业务决策 +3；主导指标体系/数据产品 +2；Kaggle/竞赛成绩 +2；"
+          "因果/实验方法扎实 +2；AI/大模型相关数据工作 +3。上限 20。",
+    deductions="只有工具罗列无业务结果 -3~-5；无任何量化收益 -3~-5；分析无方法/结论 -2~-4。",
+    gap_fn=_data_gaps,
+)
+
+MARKETING = Rubric(
+    role="市场 / 增长",
+    position_line="评估一份市场 / 增长（Marketing/Growth）简历",
+    categories=[
+        Category("growth_impact", "增长与转化", 35,
+                 "拉新/留存/转化/ROI/GMV 的真实量化结果权重最高；"
+                 "有清晰量化且归因可信 25-35；有结果弱量化 12-24；纯活动罗列无效果 1-9。"),
+        Category("channel", "渠道与打法", 25,
+                 "渠道运营、投放/买量、内容、SEO/SEM、私域/社群等打法的深度。"),
+        Category("creative", "创意与内容", 20,
+                 "内容创作、品牌塑造、活动/campaign 策划的质量与影响。"),
+        Category("data_driven", "数据驱动", 20,
+                 "漏斗分析、AB 测试、归因模型、用数据迭代增长策略的能力。"),
+    ],
+    bonus="带来显著营收/用户增长 +3；操盘爆款活动/campaign +3；多渠道实战 +2；"
+          "数据驱动增长方法扎实 +2；AI/新媒体前沿打法 +2。上限 20。",
+    deductions="全程无任何量化效果 -3~-5；只罗列活动不谈结果 -2~-4；无渠道/数据方法 -2。",
+    gap_fn=_marketing_gaps,
+)
+
 RUBRICS: Dict[str, Rubric] = {
     "engineer": ENGINEER,
     "designer": DESIGNER,
+    "pm": PM,
+    "data": DATA,
+    "marketing": MARKETING,
 }
 
 
@@ -159,3 +255,15 @@ def get_rubric(name: str) -> Rubric:
     if name not in RUBRICS:
         raise ValueError(f"未知 rubric：{name}，可选 {list(RUBRICS)}")
     return RUBRICS[name]
+
+
+def _self_check() -> None:
+    """注册自检：类别 key 唯一、满分均为正、各 rubric 维度满分一致（保证报告 /120 通用）。"""
+    for name, r in RUBRICS.items():
+        keys = [c.key for c in r.categories]
+        assert len(keys) == len(set(keys)), f"{name} 类别 key 不唯一"
+        assert all(c.max > 0 for c in r.categories), f"{name} 类别满分须为正"
+        assert r.total_max() == 100, f"{name} 维度满分应为 100（实际 {r.total_max()}）"
+
+
+_self_check()

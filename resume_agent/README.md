@@ -22,7 +22,7 @@
 | `patcher.py` | 改写模式 B（P6）：模型只返回受限 patch，结构字段无路径可改，**结构造假物理不可能** |
 | `resume_diff.py` | 通用递归 diff：全字段展示每轮改动，新增内容标注「请核对」 |
 | `validate.py` | 输入形状校验：管线入口对畸形 JSON Resume fail-fast |
-| `rubrics.py` | 可插拔评分维度：engineer（开源/编码）/ designer（设计影响/功底/流程/广度） |
+| `rubrics.py` | 可插拔评分维度：engineer / designer / pm / data / marketing（每岗位 4 维、满分 100） |
 | `evaluate.py` | 角色无关 LLM 评估器：按 rubric 评分，不依赖 hiring-agent 写死逻辑 |
 | `resume_agent.py` | 闭环编排：评估-改写-渲染 + 收敛 + 保留最高分 + 报告 |
 | `brand.py` | `~/.config/kami/brand.md` 兜底接入（仅填缺失字段） |
@@ -52,7 +52,7 @@ python3 questionnaire.py -o resume.json      # 交互问答，生成 JSON Resume
 ```bash
 # 默认 hiring-agent 模型 gemma3:4b；本机已有别的模型用 --model 覆盖
 python3 resume_agent.py resume.json -o out.pdf --target 85 --max-rounds 3
-python3 resume_agent.py resume.json --role designer          # 产品/UX 设计师评分维度（默认 engineer）
+python3 resume_agent.py resume.json --role designer          # 评分岗位：engineer(默认)/designer/pm/data/marketing
 python3 resume_agent.py resume.json --mode patch             # P6：结构造假物理不可能（更严）
 python3 resume_agent.py resume.json --strict-highlights      # rewrite 模式收紧净新增要点
 python3 resume_agent.py resume.json --allow-new-numbers      # 放宽：新数字仅 warn
@@ -70,7 +70,7 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 67 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 75 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 

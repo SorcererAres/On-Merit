@@ -230,8 +230,10 @@ def main() -> None:
         help="改写模式：rewrite=整份重写+校验；patch=只返回受限补丁（结构造假物理不可能，更严）",
     )
     ap.add_argument(
-        "--role", default="engineer", choices=["engineer", "designer"],
-        help="评分岗位：engineer=软件工程（默认）；designer=产品/UX 设计师（设计专属维度）",
+        "--role", default="engineer",
+        choices=["engineer", "designer", "pm", "data", "marketing"],
+        help="评分岗位：engineer=软件工程（默认，走 hiring-agent）；其余走可插拔 rubric："
+             "designer=产品/UX 设计；pm=产品经理；data=数据分析；marketing=市场/增长",
     )
     args = ap.parse_args()
 
@@ -250,13 +252,13 @@ def main() -> None:
                 lang = b_lang
             print(f"OK: 已应用 brand.md（兜底字段，语言={lang}）")
 
-    # designer 走角色无关 rubric 评估器；engineer 默认沿用 hiring-agent 评估器
+    # engineer 沿用 hiring-agent 评估器（其 jinja 标准更细）；其余岗位走可插拔 rubric 评估器
     rubric = None
-    if args.role == "designer":
+    if args.role == "engineer":
+        evaluate_fn, chat_fn = build_real_deps(args.model)
+    else:
         evaluate_fn, chat_fn, rubric = build_rubric_deps(args.role, args.model)
         print(f"OK: 使用「{rubric.role}」评分维度（满分 {rubric.total_max()}）")
-    else:
-        evaluate_fn, chat_fn = build_real_deps(args.model)
     result = run(
         resume, evaluate_fn, chat_fn,
         target=args.target, max_rounds=args.max_rounds, lang=lang,

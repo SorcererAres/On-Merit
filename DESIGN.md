@@ -165,20 +165,24 @@ resume_agent/
 └── test_rubrics.py        # P7c 离线测试（设计师维度 / 缺口 / 评估器）
 ```
 
-测试总计 **73 项**全过（improver 6 / resume_agent 5 / resume_diff 8 / p3b 8 / p4 10 / patcher 12 / validate 11 / rubrics 13）。
+测试总计 **75 项**全过（improver 6 / resume_agent 5 / resume_diff 8 / p3b 8 / p4 10 / patcher 12 / validate 11 / rubrics 15）。
 
 ### 可插拔 rubric（P7c）
 
 hiring-agent 原评分写死给「软件工程实习生」，对设计师等岗位无意义（会因没 GitHub 给低分、
 还建议「补开源」）。P7c 把评分抽象为 rubric：
 
-- `rubrics.py`：每个岗位声明维度（含满分与打分档）、加减分、岗位专属事实缺口检查。内置
-  **ENGINEER**（开源 35/项目 30/生产 25/技术 10）与 **DESIGNER**（商业影响 35/设计功底 25/
-  流程方法 20/经验广度 20）。两者维度满分都是 100，+20 bonus = 120，故报告与 `total_score` 通用。
+- `rubrics.py`：每个岗位声明维度（含满分与打分档）、加减分、岗位专属事实缺口检查。内置五套：
+  **ENGINEER**（开源/项目/生产/技术）、**DESIGNER**（商业影响/设计功底/流程/广度）、
+  **PM**（商业影响/产品感/落地/战略）、**DATA**（技术/业务影响/严谨性/沟通）、
+  **MARKETING**（增长转化/渠道/创意/数据驱动）。每套 4 维、满分均 100，+20 bonus = 120，
+  `total_score` 与报告 `/120` 全通用；模块 import 时 `_self_check` 校验满分一致与 key 唯一。
+  缺口检查共用 `_quant_gap`（量化成果）/`_portfolio_gap`（作品集），按岗位组合。
 - `evaluate.py`：角色无关评估器（自带 resume->文本、按 rubric 生成 criteria prompt、解析），
   不依赖 hiring-agent 写死评估器。
 - 缺口报告随岗位切换：设计师看「作品集链接 / 量化成果」，工程师看「开源贡献」。
-- CLI：`--role designer`。真机验证（gemma4）：同一份设计师简历，designer rubric 评 105/120
+- CLI：`--role {engineer,designer,pm,data,marketing}`。真机验证（gemma4）：同一份设计师简历，
+  designer rubric 评 105/120、pm rubric 评 102/120，各自优势与缺口贴合岗位
   且优势全是设计相关、缺口正确指向作品集链接；engineer rubric 则会给出无意义的低分。
 - **评估可信度（诚实说明）**：`validate_evaluation` 做了 schema 级加固（类别键必须匹配、分数
   夹到 [0,max]、上限以服务端 rubric 为准不信任模型、evidence 非空、协议错误重试后仍失败则抛），

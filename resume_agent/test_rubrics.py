@@ -38,6 +38,36 @@ def test_designer_rubric_shape():
     print("OK: designer rubric 维度与满分")
 
 
+def test_all_rubrics_registered_and_consistent():
+    """所有岗位 rubric 满分一致 100、key 唯一（_self_check 已在 import 时跑过）。"""
+    expect = {"engineer", "designer", "pm", "data", "marketing"}
+    assert set(rubrics.RUBRICS) == expect
+    for name in expect:
+        r = rubrics.get_rubric(name)
+        assert r.total_max() == 100
+        keys = [c.key for c in r.categories]
+        assert len(keys) == len(set(keys))
+    print(f"OK: {len(expect)} 个岗位 rubric 注册且满分一致")
+
+
+def test_new_role_gaps():
+    """新增岗位的事实缺口：无量化成果触发量化缺口；数据岗额外要分析作品。"""
+    no_num = {"basics": {"name": "X"}, "work": [{"highlights": ["负责相关工作"]}]}
+    for role, hint in [("pm", "增长"), ("data", "业务收益"), ("marketing", "ROI")]:
+        r = rubrics.get_rubric(role)
+        ev_dummy = {"scores": {c.key: {"score": 1, "max": c.max, "evidence": "x"}
+                               for c in r.categories}}
+        gaps = fact_gap_report(no_num, ev_dummy, r)
+        assert any("量化" in g for g in gaps), f"{role} 应报量化缺口"
+    # 数据岗无项目/作品 -> 额外缺口
+    data_gaps = fact_gap_report(no_num, {"scores": {}}, rubrics.get_rubric("data"))
+    assert any("分析作品" in g for g in data_gaps)
+    # 有量化则不报量化缺口
+    quant = {"basics": {"name": "X"}, "work": [{"highlights": ["转化率提升 30%"]}]}
+    assert not any("量化" in g for g in fact_gap_report(quant, {"scores": {}}, rubrics.get_rubric("pm")))
+    print("OK: pm/data/marketing 事实缺口")
+
+
 def test_total_score_role_agnostic():
     # 28+18+14+15 + 5 - 0 = 80
     assert total_score(_fake_designer_eval()) == 80.0
@@ -183,6 +213,8 @@ def test_portfolio_link_detection():
 
 if __name__ == "__main__":
     test_designer_rubric_shape()
+    test_all_rubrics_registered_and_consistent()
+    test_new_role_gaps()
     test_total_score_role_agnostic()
     test_designer_gaps_fire_portfolio()
     test_designer_quant_gap()
