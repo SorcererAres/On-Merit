@@ -1,0 +1,57 @@
+{
+  "basics": {
+    "name": "李明",
+    "email": "liming@example.com",
+    "phone": "138-0000-0000",
+    "url": "https://liming.dev",
+    "summary": "AI / Agent 方向工程师，专注大模型应用与文档自动化。三年内主导两个从 0 到 1 的产品，累计服务 5 万+ 用户。",
+    "location": { "city": "杭州" },
+    "profiles": [
+      { "network": "GitHub", "username": "liming", "url": "https://github.com/liming" }
+    ]
+  },
+  "work": [
+    {
+      "name": "某科技公司",
+      "position": "高级工程师 · Agent 平台",
+      "startDate": "2023",
+      "endDate": "至今",
+      "summary": "负责 Agent 编排平台的核心链路，从架构设计到上线全程主导。",
+      "highlights": [
+        "设计文档生成流水线，PDF 产出一致性从 60% 提升到 98%",
+        "推动评分闭环上线，简历优化平均分提升 22 分"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "kami-resume-agent",
+      "url": "https://github.com/liming/kami-resume-agent",
+      "description": "结合评分与渲染的简历 agent，★ 1200",
+      "technologies": ["Python", "WeasyPrint", "LLM"]
+    },
+    {
+      "name": "doc-pipeline",
+      "url": "https://github.com/liming/doc-pipeline",
+      "description": "文档自动排版工具",
+      "technologies": ["Python", "Jinja"]
+    }
+  ],
+  "skills": [
+    { "name": "工程能力", "keywords": ["Python", "分布式", "LLM 应用"] },
+    { "name": "产品判断", "level": "能独立把控从 0 到 1", "keywords": ["需求拆解", "指标设计"] }
+  ],
+  "awards": [
+    { "title": "年度最佳工程师", "awarder": "某科技公司", "date": "2024", "summary": "因 Agent 平台落地获评。" }
+  ],
+  "education": [
+    {
+      "institution": "某大学",
+      "studyType": "本科",
+      "area": "计算机科学",
+      "score": "GPA 3.8",
+      "startDate": "2016",
+      "endDate": "2020"
+    }
+  ]
+}

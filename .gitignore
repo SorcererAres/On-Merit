@@ -1,0 +1,19 @@
+# 上游 clone（各自带 .git，不纳入本仓库；按需各自更新）
+Kami/
+hiring-agent/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 生成/临时产物（resume_agent 只含 .py/.json/.md，渲染产物不入库）
+*.pdf
+*.html
+smoke_out.*
+scratchpad/
+
+# 系统
+.DS_Store
