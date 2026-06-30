@@ -32,6 +32,7 @@
 | `validate.py` | 输入形状校验：管线入口对畸形 JSON Resume fail-fast |
 | `rubrics.py` | 可插拔评分维度：engineer / designer / pm / data / marketing（每岗位 4 维、满分 100） |
 | `evaluate.py` | 角色无关 LLM 评估器：按 rubric 评分 + 严格校验 + 公平性脱敏 |
+| `ingest.py` | PDF 简历 -> JSON Resume（PyMuPDF 抽文本 + LLM 结构化 + 校验），补全闭环入口 |
 | `llm.py` | 自包含 LLM provider：Ollama / Gemini -> 统一 chat_fn |
 | `assets/templates/` | vendor 进来的 Kami 简历模板（zh/en/ko），渲染自包含 |
 | `resume_agent.py` | 闭环编排：评估-改写-渲染 + 收敛 + 保留最高分 + 报告 |
@@ -49,10 +50,12 @@ python3 kami_adapter.py sample_resume.json -o out.pdf          # PDF 需 pip ins
 python3 kami_adapter.py resume.json --lang en --role "AI Engineer" -o out.html
 ```
 
-### 2. 从零生成简历
+### 2. 准备 JSON Resume（三选一）
 
 ```bash
-python3 questionnaire.py -o resume.json      # 交互问答，生成 JSON Resume
+python3 ingest.py resume.pdf -o resume.json --model gemma4:latest  # 从 PDF 自动结构化（需 pymupdf）
+python3 questionnaire.py -o resume.json                            # 从零交互问答
+# 或直接手写 resume.json（JSON Resume 格式）
 ```
 
 ### 3. 完整闭环（需 LLM）
@@ -77,10 +80,10 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 ## 测试
 
 ```bash
-for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm; do python3 $t.py; done
+for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm test_ingest; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 85 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 91 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 

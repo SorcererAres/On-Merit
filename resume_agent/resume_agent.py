@@ -7,8 +7,8 @@
   - 真实运行：``build_rubric_deps(role)`` 接可插拔 rubric 评估器 + 自带 LLM provider（自包含）；
   - 离线测试：注入假函数即可跑通整条闭环（见 test_resume_agent.py）。
 
-本项目自包含，不依赖外部 clone：评估用 rubrics + evaluate.py，渲染模板已 vendor 进 assets/，
-LLM provider 见 llm.py。① INGEST（PDF -> JSON Resume）需自备（用 PyMuPDF 抽文本后结构化），
+本项目自包含，不依赖外部 clone：① INGEST 见 ingest.py（PDF -> JSON Resume），评估用
+rubrics + evaluate.py，渲染模板已 vendor 进 assets/，LLM provider 见 llm.py。
 本编排器从「已有 resume.json」起步，聚焦评估-改写-渲染闭环。
 """
 
