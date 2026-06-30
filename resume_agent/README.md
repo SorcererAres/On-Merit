@@ -60,7 +60,7 @@ python3 questionnaire.py -o resume.json      # 交互问答，生成 JSON Resume
 依赖（评估路径）：`pip install ollama pydantic Jinja2 python-dotenv`，并装好 Ollama 或配 Gemini。
 
 ```bash
-# 默认 hiring-agent 模型 gemma3:4b；本机已有别的模型用 --model 覆盖
+# 默认模型 gemma3:4b（llm.py）；本机已有别的模型用 --model 覆盖，或设 OLLAMA_MODEL
 python3 resume_agent.py resume.json -o out.pdf --target 85 --max-rounds 3
 python3 resume_agent.py resume.json --role designer          # 评分岗位：engineer(默认)/designer/pm/data/marketing
 python3 resume_agent.py resume.json --mode patch             # P6：结构造假物理不可能（更严）
