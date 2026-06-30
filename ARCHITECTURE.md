@@ -1,150 +1,163 @@
 # 技术架构（MVP 邀请制试点）
 
-> 配套 [PRODUCT.md](PRODUCT.md)（产品）与 [DESIGN.md](DESIGN.md)（引擎工程）。
-> 原则：试点阶段**够安全（PII）、够正确（异步 + 复用反造假引擎）**，不过早上重型基础设施。
-> 已有 `resume_agent/` 引擎作为库直接复用，新增的只是它外面的 Web/服务/存储/合规层。
+> 配套 [PRODUCT.md](PRODUCT.md)（产品）、[DESIGN.md](DESIGN.md)（引擎）。已含一轮架构跨模型复核（Codex）。
+> 核心修订：不只写目标，**写清保证目标成立的机制**——任务队列的租约/幂等、运行隔离、PII 删除闭环、
+> 敌对输入沙箱。否则"轻量 MVP"会把可靠性复杂度藏进业务表。合规条目均**需属地法律意见确认**，本文只给工程落点。
 
-## 一、总体架构
+## 一、部署拓扑（三个隔离单元，不是一个进程）
 
 ```
-                          浏览器 (Next.js SPA)
-                       上传 / 纠错 / 看匹配 / 审 diff / 下载
-                                  │ HTTPS（仅国内节点，ICP 备案）
-              ┌───────────────────▼────────────────────┐
-              │            FastAPI 应用（单体）          │
-              │  Auth(手机验证码) · REST API · 限流/鉴权  │
-              │  写 jobs 表（不引 Celery/Redis：DB 任务队列）│
-              └───────┬───────────────────────┬─────────┘
-                      │ 入队                    │ 读结果
-              ┌───────▼────────┐        ┌──────▼──────┐
-              │  Worker 进程    │        │  PostgreSQL  │
-              │  轮询 jobs 表   │◀──────▶│ users/resumes│
-              │  跑 resume_agent│        │ jobs/matches │
-              │   引擎（库调用）│        │ payments/audit│
-              │  ├ ingest       │        │（敏感字段加密）│
-              │  ├ jd_match     │        └──────────────┘
-              │  ├ improve      │
-              │  ├ render(Chromium→PDF)        ┌──────────────┐
-              │  └ LLM 客户端 ──┼──────────────▶│ 托管 LLM API │
-              └───────┬─────────┘  通义/智谱     └──────────────┘
-                      │ 文件读写
-              ┌───────▼────────┐
-              │ 对象存储(OSS)   │ 上传 PDF(短存) · 渲染 PDF(签名URL)
-              └────────────────┘
+浏览器(Next.js) ──HTTPS──▶ ┌─ API 容器 (FastAPI) ─┐  鉴权/限流/入队/查询
+                            │  绝不在此跑引擎       │  （禁用 BackgroundTasks 跑 LLM/渲染）
+                            └──────────┬───────────┘
+                                       │ 写 jobs（FOR UPDATE SKIP LOCKED 领取）
+                    ┌──────────────────┼──────────────────┐
+              ┌─────▼──────┐    ┌──────▼───────┐    ┌──────▼──────┐
+              │ 解析 Worker │    │ 通用 Worker  │    │ 渲染 Worker │
+              │ ingest(沙箱)│    │ match/improve│    │ Chromium并发=1│
+              │ 无内网/只读 │    │ LLM 调用     │    │ 每job独立子进程│
+              └─────┬──────┘    └──────┬───────┘    └──────┬──────┘
+                    └────────── PostgreSQL ───────────────┘  jobs/users/resumes...
+                               OSS(私有桶, 签名URL)          托管 LLM(单家)
 ```
 
-**为什么单体 + DB 任务队列**：试点并发低、要快上线、要少运维面。`jobs` 表 + Worker 轮询足够；
-扩容时再换 Celery/Redis 或托管队列、把 render 拆独立服务（见第九节）。
+- **API / 通用 Worker / 渲染 Worker / 解析 Worker 是独立容器与部署单元**，各自设 CPU/内存/PID/`/tmp`/DB 连接池上限。
+- API **禁止**用 `BackgroundTasks` 或启动线程跑引擎；慢 job 永远在 Worker，OOM 不波及 API。
+- 渲染 Worker 初期**并发=1**，每 job 独立 Chromium 子进程 + 独立临时目录，完成后杀整个进程组；设单 job 硬超时、浏览器最大复用次数、RSS 阈值；**不得 `--no-sandbox`**。
 
 ## 二、复用 vs 新建
 
-| 复用（`resume_agent/`，零改动核心） | 新建（Web/服务层） |
+| 复用（`resume_agent/`，核心零改动） | 新建（服务/平台层） |
 |-----------------------------------|-------------------|
-| `ingest` PDF→JSON + grounding 核验 | FastAPI API + 鉴权/限流 |
-| `jd_match` JD↔证据映射 + 反造假 | 异步 jobs 表 + Worker 运行器 |
-| `evaluate`/`rubrics` 按岗位评分 | `llm.py` 加**通义/智谱 provider** |
-| `improver`/`patcher` 事实约束改写 | 渲染服务（Chromium PDF）|
-| `resume_diff` 逐字段 diff | 账号 / 支付 / 存储 / PII 加密 |
-| `kami_adapter` 渲染 HTML | 合规：同意、删除闭环、审计、AI 标识 |
-| `validate` 形状校验 | 运营后台 + 成本/质量埋点 |
+| ingest / jd_match / evaluate / improver·patcher / resume_diff / kami_adapter / validate | API + 鉴权/对象级授权 + 限流 |
+| `llm.py`（加**一家**托管 provider） | **有租约+幂等的 jobs 队列** + Worker 运行器 |
+| grounding / 反造假 / 公平脱敏 | 沙箱化解析与渲染、信封加密、删除状态机 |
+| | 支付、审计、AI 标识、合规件、成本/运行看板 |
 
-## 三、主流程（异步 + 进度）
+> 注：`resume_agent` 引擎需保留依赖**补丁/升级**通道——"零改动"不能成为修漏洞的障碍（PyMuPDF/Chromium 漏洞）。
 
-```
-上传PDF/粘贴 ─POST /resumes─▶ 建 job(ingest) ─▶ 返回 job_id
-   前端轮询 GET /jobs/{id} ◀─ Worker: ingest → JSON + grounding 告警
-   ─▶ 解析预览 + 低置信字段确认/纠错  PATCH /resumes/{id}
-粘贴 JD ─POST /resumes/{id}/match─▶ job(jd_match) ─▶ 覆盖度+证据+硬缺口
-一键强化 ─POST .../improve {jd}─▶ job(improve) ─▶ 逐条 diff（patch，未编造）
-   用户逐条接受/拒绝  POST .../accept {接受的patch}
-导出 ─POST .../render─▶ job(render) ─▶ Chromium 出 PDF → OSS 签名URL（付费去水印）
-```
+## 三、异步主流程（体验机制）
 
-每个 job 落 token 数 / 各阶段耗时 / 失败原因，用于成本与质量核算。
+- 提交即 `202 Accepted + Location: /jobs/{id}`；前端**指数退避轮询** + `Retry-After`；刷新可恢复。
+- job 阶段：`queued → running(stage) → done|failed|canceled`；展示**真实阶段 + 最后心跳**，**不展示无法准确计算的假百分比**。
+- **取消接口**：用户取消后停止后续 LLM/渲染；已发出的模型请求即便不可撤，也**不得触发下游付费动作**。
 
-## 四、数据模型（核心表）
+## 四、任务队列语义（DB 队列的硬要求，上线前必须有）
 
-| 表 | 关键字段 | PII/保留 |
+仅 `status/progress` 扛不住 Worker 崩溃/重复领取/计费后重试。`jobs` 表补：
+
+- **原子领取**：`SELECT ... FOR UPDATE SKIP LOCKED` 或 `UPDATE...RETURNING`，领取事务**立即提交**，执行 LLM/Chromium 时**绝不持有 DB 事务**。
+- 字段：`available_at, locked_by, lease_expires_at, heartbeat_at, attempt, max_attempts, idempotency_key, cancel_requested_at`。
+- **租约**：到期回收、心跳续租、毒任务进**死信**、人工重放。
+- **幂等**：API 请求带幂等键 + 唯一约束；阶段结果写入与 job 完成状态**同事务提交**；OSS key、渲染产物、额度扣减**重复执行不产生副作用**（按 job_id 派生 key、额度按 idempotency_key 去重）。
+
+## 五、数据模型
+
+| 表 | 关键字段 | 生命周期 |
 |----|---------|---------|
-| `users` | id, phone_hash(不存明文), created_at | 手机号仅存哈希 |
-| `resumes` | id, user_id, **json_enc(敏感字段加密)**, source, created_at, **delete_at** | 默认 7 天自动删；硬删接口 |
-| `jobs` | id, user_id, type(ingest/match/improve/render), status, progress, input_ref, result_ref, error, **tokens_in/out**, ms | 结果含 PII 同样加密 |
-| `jd_matches` | id, resume_id, jd_hash, report_json, created_at | JD 不长存明文，存哈希+报告 |
-| `payments` | id, user_id, sku(单次/求职包), amount, status, channel | — |
-| `audit_log` | id, user_id, action(read/export/delete), at, ip | PII 访问/删除全留痕 |
-| `files`(OSS) | 上传原件(短存 24h)、渲染 PDF(签名URL，限时) | 上传件尽早删 |
+| `users` | id, **phone_hmac**(服务端密钥 HMAC，非裸 SHA), created_at | — |
+| `resumes` | id, user_id, **revision**(不可变版本), **content_enc**(信封加密), source, created_at, **delete_at** | 默认 7 天自动删 + 硬删 |
+| `jobs` | id, user_id, type, status, stage, 第四节全部队列字段, **tokens_in/out**, ms, error_class | 与简历同删 |
+| `jd_matches` | id, resume_id+revision, jd_hash, report_enc, retention_at | JD/报告也含 PII，定保留期 |
+| `payments` | id, user_id, **out_trade_no**, sku, amount, status, channel | 对账留存 |
+| `entitlements` | id, user_id, sku, quota, used | 与订单同事务发放 |
+| `audit_log` | actor, role, resource+version, **purpose**, request_id, result, source | **仅追加**、完整性校验、独立保留期 |
 
-## 五、API（关键端点）
+> 业务正文（解析文本/grounding 片段/diff/匹配报告/模型输出）一律视为个人信息，**信封加密**：每份简历独立 DEK，KMS 管 KEK，应用实例不持长期主密钥。
+
+## 六、API（关键端点）
 
 ```
-POST  /auth/otp                 手机号 -> 发验证码
-POST  /auth/verify              验证码 -> 会话
-POST  /resumes                  上传 PDF / 粘贴文本 -> job(ingest)
-GET   /jobs/{id}                轮询状态/进度/结果
-PATCH /resumes/{id}             字段纠错（低置信确认）
-POST  /resumes/{id}/match       {jd_text} -> job(jd_match)
-POST  /resumes/{id}/improve     {jd_text} -> job(improve)，返回 diff
-POST  /resumes/{id}/accept      {accepted_patches} -> 应用接受项
-POST  /resumes/{id}/render      {lang,template} -> job(render) -> 签名PDF
-DELETE /resumes/{id}            硬删除（+ 审计）
-POST  /pay/checkout · /pay/callback
+POST /auth/otp · /auth/verify        手机验证码（HMAC 存储；会话 HttpOnly/Secure/SameSite + CSRF）
+POST /resumes                         上传/粘贴 -> job(ingest)；入队前预占额度
+GET  /jobs/{id}                       202/状态/阶段/心跳；可 GET 恢复
+PATCH /resumes/{id}                   字段纠错 -> 新 revision（乐观锁）
+POST /resumes/{id}/match {jd}         -> job(jd_match)（绑定 revision）
+POST /resumes/{id}/improve {jd}       -> job(improve)，返回 diff
+POST /resumes/{id}/accept {patches}   应用接受项 -> 新 revision
+POST /resumes/{id}/render             -> job(render)（绑定已接受 revision + 模板版本）
+DELETE /resumes/{id}                  触发删除状态机
+POST /pay/checkout · /pay/callback    回调验签 + 幂等
 ```
 
-## 六、LLM 接入层（`llm.py` 扩展）
+所有端点**对象级授权**：从会话取 user，**绝不信任客户端传入的 user_id**。
 
-- 新增 **通义千问(DashScope)** 与 **智谱 GLM** provider，沿用现有 `make_chat_fn` 接口（一处接入，全引擎复用）。
-- 统一加：超时、**有限重试**（只重试网络/限流，不重试 4xx/格式错）、**按 job 记 token 与耗时**。
-- 选**支持「不用于训练」的企业接口**；密钥走密管，不入库不入日志。
-- 评估/匹配用低温度（稳定结构化），改写可略高——分别配置。
+## 七、LLM 接入层（`llm.py` 扩展）
 
-## 七、渲染服务（PDF）
+- 试点**只接一家**（通义 qwen-plus **或** 智谱 GLM-4）；保留 provider 抽象，但不做双供应商（回归/披露/对账翻倍，偏重）。
+- **只发完成任务所需的结构化字段，禁发原始 PDF / 整份明文**；密钥走密管，不入库不入日志。
+- 统一：连接/单次 LLM/阶段/job 总四级超时；只重试网络与限流，不重试 4xx/格式错；按 job 记 token 与耗时。
+- 合规：固定**国内地域端点**，验证故障转移不自动出境；签 DPA（目的/期限/数据种类/安全/删除/转委托）；主备模型切换前各自完成披露+合同+数据流评估，**不静默切换用户数据**。
 
-- `kami_adapter` 出 HTML → **容器内 headless Chromium** 打印 PDF。
-- **字体内置进渲染镜像**（不依赖 CDN，渲染容器可**网络隔离**，杜绝 SSRF）。
-- 渲染前对用户内容做 HTML 转义校验（引擎已 `safe_url` + `esc`）；Chromium 沙箱 + 资源限额。
-- 输出落 OSS，返回**限时签名 URL**；免费档加水印，付费去水印。
+## 八、解析与渲染沙箱（敌对输入边界）
 
-## 八、安全与合规（落到架构）
+PDF 解析器漏洞 / 压缩炸弹 / 超大对象 / 字体漏洞 / 模板注入 / Chromium 逃逸，靠"扫描+转义"挡不住。
 
-- **PII**：`resumes.json` 敏感字段（姓名/电话/邮箱）**应用层加密**；评估端进模型前已脱敏（不送姓名/院校）。
-- **上传安全**：大小/页数限额、文件类型校验、恶意文件扫描、**隔离解析**（解析进程不连内网）。
-- **删除闭环**：硬删接口 + 默认 `delete_at` 自动清 + OSS 同步删 + 备份可删，全程 `audit_log`。
-- **合规对接**（详见 PRODUCT.md 第五节）：上传前**单独同意**、隐私政策、**PIPIA 留档**、ICP 备案、
-  生成式 AI 应用登记、**AI 生成内容标识**（界面 + 导出 PDF 加隐式/显式标识）。
-- **鉴权**：会话级；`resumes/jobs` 按 user 隔离，防越权（IDOR）。
+- 解析、渲染各跑在**无密钥、无内网、非 root、只读根文件系统**的沙箱容器；**禁访云元数据地址**；seccomp/AppArmor + PID/解压总量限制 + 硬超时。
+- 渲染**只接受服务端生成的结构化模板**，不接受用户 HTML/CSS；叠加 CSP + **网络全禁** + 限制 `file://` + 独立临时目录；字体内置镜像。
+- 入口限额：PDF 大小/页数/解析字符数、JD 长度、最大输入/输出 token。
 
-## 九、扩容路径（试点跑通后再做，别提前）
+## 九、PII 与删除闭环（PIPL 落点，需法律确认）
+
+- **删除=可重试状态机**：冻结访问 → 删业务记录 → 删对象及历史版本 → 删临时产物/浏览器目录 → **销毁 DEK** → 记完成证据 → 定期对账。
+- **备份不可即时删**：写成"恢复备份后先重放删除墓碑再开放服务" + 明确备份过期；技术不可即删期间停止除存储/安全外的处理（对齐 PIPL 第 47 条）。
+- 日志**禁记**原文 / Prompt / 模型响应 / OSS URL / 手机号。
+- 上传协议要求用户确认**简历属本人或已获授权**；第三方简历、推荐人联系方式单独处理。
+- 委托处理（LLM/云/短信厂商）做**数据流清单** + 事前 **PIPIA 留档**（记录至少存 3 年，PIPL 第 55/56 条）。
+
+## 十、鉴权与权限模型
+
+- 端点统一对象级授权；API / Worker / 删除器 / 运营后台用**不同服务账号、最小权限**（一处漏洞不致全量泄漏）。
+- 运营后台**默认看不到原文**；查看 PII 需 MFA + 理由 + 临时授权 + 二次审计。
+- OSS：私有桶、禁列举、**服务端生成签名 URL**、绑定对象 + 短 TTL + `Cache-Control: no-store`。
+
+## 十一、防滥用与成本控制（邀请制不等于无限）
+
+邀请链接会泄露、手机号可批量注册 —— 限流必须发生在**入队和外部调用之前**。
+
+- 多维限流：用户 / IP / 手机号 / 邀请码 + 验证码冷却 + 错误次数 + CAPTCHA。
+- 额度：每日 improve/render 次数；**入队前事务内预占额度**，明确失败返还规则。
+- 全局：每日预算上限、供应商并发上限、队列最大长度、**熔断开关**。
+- 幂等去重：同用户 + 同简历 revision + 同 JD 的重复请求合并。
+
+## 十二、支付
+
+回调**验渠道签名 + 商户订单号 + 金额 + SKU + 状态 + 时间**，**幂等**；权益发放与订单状态变更**同事务**；绝不信前端提交的金额/"已支付"。
+
+## 十三、合规清单（工程落点，均需属地法律意见确认）
+
+- **AI 生成内容标识**：法定标识与"商业水印"**分开**——导出 PDF 含**显式标识 + 元数据隐式标识**；不能设计成"付费去除全部标识"（《AI 生成合成内容标识办法》，无显式标识有条件且日志≥6 个月）。
+- **登记备案**：区分 基础模型备案 / 调用已备案模型的**应用登记** / 具舆论属性时的算法备案；产品**公示所用模型及备案号**。
+- **ICP 备案**（~20 工作日，W0 提交）；可能涉**经营性 ICP 许可**。
+- **等保定级**：ICP 备案≠网络安全合规；上线前做等保定级、负责人制度、应急预案，**网络日志留存≥6 个月**（《网络安全法》第 21 条）。
+
+## 十四、可观测性（补运行告警，标签不含 PII）
+
+业务指标外，必须有运行告警：**最老排队时间、租约过期数、重复执行数、Worker RSS/OOM、Chromium 残留进程、DB 连接占用、删除失败数、OSS 生命周期漂移、供应商错误率、全链路成功率**。成本看板按**每笔成功付费导出的全成本 + CAC**。
+
+## 十五、扩容路径（试点跑通再做）
 
 | 信号 | 动作 |
 |------|------|
-| 并发上升、job 积压 | DB 队列 → **Celery/Redis 或托管队列**；Worker 横向扩 |
-| 渲染成瓶颈 | 渲染拆**独立服务** + Chromium 池自动伸缩 |
-| LLM 成本/延迟敏感 | 加缓存（同简历同 JD 命中）、按档选模型、评估自建可能性 |
-| 多区域/合规分级 | 数据分域、读写分离、对象存储多桶 |
+| job 积压 | DB 队列 → Celery/Redis 或托管队列；Worker 横向扩 |
+| 渲染瓶颈 | 渲染服务独立 + Chromium 池自动伸缩 |
+| 成本敏感 | **仅用户内、版本绑定、短期**缓存（**不做跨用户缓存**，防数据串用）；按档选模型 |
 
-## 十、可观测与成本核算
+## 十六、上线门槛：四组故障演练（通过才上）
 
-- 每 job 记：阶段耗时、token in/out、重试次数、失败类型、grounding 告警数。
-- 成本看板：**每笔成功付费导出的全成本**（LLM + 渲染 + 短信 + 存储 + 人工兜底）与 CAC，而非单次 LLM 调用。
-- 质量看板：grounding 告警率、字段纠错率、用户举报"改得不对"率、人工复核错误率（金标集）。
+1. Worker 在 **LLM 前 / LLM 后 / 写结果前** 被强杀 → 任务不丢、不重复扣费。
+2. Chromium 内存失控 → API 仍能登录/查询（隔离生效）。
+3. 删除后 → DB / OSS / 临时目录 / 模型日志 / 备份恢复路径 **均不可再用该数据**。
+4. 邀请码泄露 + 重复支付回调 → **不突破额度、不重复发权益**。
 
-## 十一、技术选型小结
+## 十七、选型小结
 
 | 层 | 选型 | 备注 |
 |----|------|------|
-| 前端 | Next.js + Tailwind | 部署国内 CDN，ICP 备案 |
-| 后端 | FastAPI（Python） | 与引擎同语言，库直接 import，零胶水 |
-| 任务 | DB(jobs 表) + Worker 轮询 | 试点从简；扩容换队列 |
-| 存储 | RDS PostgreSQL + OSS | 敏感字段加密、签名 URL、自动删 |
-| LLM | 通义 qwen-plus / 智谱 GLM-4 | 企业接口、不训练、密管 |
-| 渲染 | headless Chromium + 内置字体 | 网络隔离、限时签名 PDF |
-| 部署 | 阿里云/腾讯云（ECS 或容器服务） | 单体起步 |
-| 登录 | 手机号验证码 | 微信开放平台资质后置 |
-
-## 十二、落地顺序（对应 PRODUCT.md 6 周节奏）
-
-1. `llm.py` 接通义/智谱 + FastAPI 包 ingest/match/improve/render（本地跑通）
-2. jobs 表 + Worker + 进度轮询；渲染容器（内置字体）出 PDF
-3. 前端：上传→解析预览/纠错→JD 匹配页→改写 diff 页→导出
-4. 账号 + 支付 + 删除闭环 + 审计 + AI 标识 + 埋点
-5. 合规件齐（W0 已启动备案）→ 邀请 30–50 人试点
+| 前端 | Next.js + Tailwind | 国内 CDN，ICP 备案 |
+| 后端 | FastAPI（与引擎同语言） | API / 通用 / 解析 / 渲染 **四个独立容器** |
+| 队列 | PostgreSQL jobs 表（租约+幂等） | 扩容再换队列 |
+| 存储 | RDS PostgreSQL + OSS | 信封加密、私有桶、签名 URL、自动删 |
+| LLM | 通义 qwen-plus **或** 智谱 GLM-4（**单家**） | 企业接口、国内地域、DPA、不训练 |
+| 渲染/解析 | 沙箱容器 + headless Chromium（内置字体、网络隔离） | 非 root、只读根、seccomp |
+| 密钥 | KMS（信封加密 KEK）+ 密管 | 应用不持长期主密钥 |
