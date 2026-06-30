@@ -71,6 +71,57 @@ def test_retry_recovers():
     print("OK: 抖动后恢复")
 
 
+def test_reject_nan_infinity():
+    """NaN/Infinity 被拒（json.loads 默认会接受）。"""
+    chat = lambda m: '{"basics": {"name": "x"}, "x": NaN}'
+    try:
+        ingest.text_to_resume(SAMPLE_TEXT, chat, retries=0)
+        assert False
+    except ValueError:
+        pass
+    print("OK: 拒绝 NaN/Infinity")
+
+
+def test_grounding_flags_hallucination():
+    """grounding：原文没有的邮箱/公司/成果数字被告警；原文有的不告警。"""
+    source = "张三 设计师\n独到科技 满意度提升 36.5%"
+    # 编造：邮箱、公司、数字都不在原文
+    bad = {"basics": {"name": "张三", "email": "fake@x.com"},
+           "work": [{"name": "谷歌", "highlights": ["增长 999%"]}]}
+    w = ingest.grounding_warnings(bad, source)
+    assert any("邮箱" in x for x in w)
+    assert any("公司" in x and "谷歌" in x for x in w)
+    assert any("999" in x for x in w)
+    # 忠实抽取：公司与数字都在原文 -> 无告警
+    good = {"work": [{"name": "独到科技", "highlights": ["满意度提升 36.5%"]}]}
+    assert ingest.grounding_warnings(good, source) == []
+    print("OK: grounding 抓幻觉、不误伤忠实抽取")
+
+
+def test_grounding_phone_space_normalized():
+    """电话/百分号的空格与全角差异不误报。"""
+    source = "Phone：185 1176 1949  转化率 8.76％"
+    r = {"basics": {"phone": "18511761949"}, "work": [{"highlights": ["转化率 8.76%"]}]}
+    assert ingest.grounding_warnings(r, source) == []
+    print("OK: grounding 归一化空格/全角")
+
+
+def test_ingest_returns_warnings(monkeypatch=None):
+    """ingest() 返回 (resume, warnings)；用假 pdf_to_text + chat。"""
+    orig = ingest.pdf_to_text
+    ingest.pdf_to_text = lambda p: "独到科技 满意度提升 36.5%"
+    try:
+        chat = lambda m: json.dumps(
+            {"basics": {"email": "fake@x.com"}, "work": [{"name": "独到科技"}]},
+            ensure_ascii=False)
+        resume, warns = ingest.ingest("dummy.pdf", chat)
+        assert resume["work"][0]["name"] == "独到科技"
+        assert any("邮箱" in w for w in warns)  # fake 邮箱不在原文
+    finally:
+        ingest.pdf_to_text = orig
+    print("OK: ingest 返回 (resume, warnings)")
+
+
 if __name__ == "__main__":
     test_text_to_resume_ok()
     test_prompt_marks_resume_untrusted()
@@ -78,4 +129,8 @@ if __name__ == "__main__":
     test_empty_text_rejected()
     test_retry_then_fail_on_malformed()
     test_retry_recovers()
+    test_reject_nan_infinity()
+    test_grounding_flags_hallucination()
+    test_grounding_phone_space_normalized()
+    test_ingest_returns_warnings()
     print("\nALL PASS")

@@ -83,7 +83,7 @@ python3 smoke_real.py --model gemma4:latest --rounds 2
 for t in test_improver test_resume_agent test_resume_diff test_p3b test_p4 test_patcher test_validate test_rubrics test_llm test_ingest; do python3 $t.py; done
 ```
 
-全部为离线测试（注入假 LLM），共 91 项，无需真实模型即可验证逻辑。
+全部为离线测试（注入假 LLM），共 95 项，无需真实模型即可验证逻辑。
 
 ## 红线：事实诚信（两种模式）
 
