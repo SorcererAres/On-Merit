@@ -4,10 +4,11 @@
     ② EVALUATE -> （达标或收敛？停）-> ③ IMPROVE -> 回到 ② ... -> ④ RENDER + 报告
 
 评估（``evaluate_fn``）和改写（``chat_fn``）都是可注入依赖：
-  - 真实运行：``build_real_deps()`` 接 hiring-agent 的评估器和 LLM provider；
+  - 真实运行：``build_rubric_deps(role)`` 接可插拔 rubric 评估器 + 自带 LLM provider（自包含）；
   - 离线测试：注入假函数即可跑通整条闭环（见 test_resume_agent.py）。
 
-注意：① INGEST（PDF -> JSON Resume）直接用 hiring-agent 的 score.py / pdf.py，
+本项目自包含，不依赖外部 clone：评估用 rubrics + evaluate.py，渲染模板已 vendor 进 assets/，
+LLM provider 见 llm.py。① INGEST（PDF -> JSON Resume）需自备（用 PyMuPDF 抽文本后结构化），
 本编排器从「已有 resume.json」起步，聚焦评估-改写-渲染闭环。
 """
 
@@ -158,50 +159,20 @@ def format_report(result: AgentResult) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# 真实依赖工厂（接 hiring-agent）
+# 真实依赖工厂（自包含：rubrics + evaluate.py + 自带 LLM provider）
 # --------------------------------------------------------------------------- #
-def build_real_deps(model_name: Optional[str] = None):
-    """返回 (evaluate_fn, chat_fn)，接 hiring-agent 评估器 + LLM provider。
-
-    需要 hiring-agent 配好 Ollama 或 Gemini。
-    """
-    import sys
-
-    ha = Path(__file__).resolve().parent.parent / "hiring-agent"
-    if str(ha) not in sys.path:
-        sys.path.insert(0, str(ha))
-
-    from models import JSONResume
-    from evaluator import ResumeEvaluator
-    from transform import convert_json_resume_to_text
-    from prompts.template_manager import TemplateManager
-    from improver import make_hiring_agent_chat_fn
-
-    evaluator = ResumeEvaluator(model_name=model_name) if model_name else ResumeEvaluator()
-    # TemplateManager 默认按 CWD 相对路径找模板；改用 hiring-agent 下的绝对路径，
-    # 这样从任意目录运行都能定位 prompts/templates。
-    evaluator.template_manager = TemplateManager(
-        template_dir=str(ha / "prompts" / "templates")
-    )
-
-    def evaluate_fn(resume: Dict[str, Any]) -> Dict[str, Any]:
-        text = convert_json_resume_to_text(JSONResume(**resume))
-        return evaluator.evaluate_resume(text).model_dump()
-
-    return evaluate_fn, make_hiring_agent_chat_fn(model_name)
-
-
 def build_rubric_deps(rubric_name: str, model_name: Optional[str] = None):
-    """返回 (evaluate_fn, chat_fn, rubric)，用角色无关评估器（rubrics + evaluate.py）。
+    """返回 (evaluate_fn, chat_fn, rubric)，用可插拔 rubric 评估器。
 
-    不依赖 hiring-agent 写死评估器，对 engineer / designer / 自定义 rubric 通用。
+    对所有岗位（engineer / designer / pm / data / marketing / 自定义）通用，自包含，
+    不依赖外部 clone。
     """
-    from improver import make_hiring_agent_chat_fn
+    from improver import make_chat_fn
     from rubrics import get_rubric
     from evaluate import make_evaluate_fn
 
     rubric = get_rubric(rubric_name)
-    chat_fn = make_hiring_agent_chat_fn(model_name)
+    chat_fn = make_chat_fn(model_name)
     return make_evaluate_fn(rubric, chat_fn), chat_fn, rubric
 
 
@@ -232,8 +203,8 @@ def main() -> None:
     ap.add_argument(
         "--role", default="engineer",
         choices=["engineer", "designer", "pm", "data", "marketing"],
-        help="评分岗位：engineer=软件工程（默认，走 hiring-agent）；其余走可插拔 rubric："
-             "designer=产品/UX 设计；pm=产品经理；data=数据分析；marketing=市场/增长",
+        help="评分岗位（可插拔 rubric）：engineer=软件工程（默认）；designer=产品/UX 设计；"
+             "pm=产品经理；data=数据分析；marketing=市场/增长",
     )
     args = ap.parse_args()
 
@@ -252,13 +223,9 @@ def main() -> None:
                 lang = b_lang
             print(f"OK: 已应用 brand.md（兜底字段，语言={lang}）")
 
-    # engineer 沿用 hiring-agent 评估器（其 jinja 标准更细）；其余岗位走可插拔 rubric 评估器
-    rubric = None
-    if args.role == "engineer":
-        evaluate_fn, chat_fn = build_real_deps(args.model)
-    else:
-        evaluate_fn, chat_fn, rubric = build_rubric_deps(args.role, args.model)
-        print(f"OK: 使用「{rubric.role}」评分维度（满分 {rubric.total_max()}）")
+    # 所有岗位走可插拔 rubric 评估器（自包含）
+    evaluate_fn, chat_fn, rubric = build_rubric_deps(args.role, args.model)
+    print(f"OK: 使用「{rubric.role}」评分维度（满分 {rubric.total_max()}）")
     result = run(
         resume, evaluate_fn, chat_fn,
         target=args.target, max_rounds=args.max_rounds, lang=lang,

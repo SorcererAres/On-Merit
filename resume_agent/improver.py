@@ -369,32 +369,9 @@ def improve(
 
 
 # --------------------------------------------------------------------------- #
-# 复用 hiring-agent provider 的 chat_fn 工厂
+# chat_fn 工厂（自包含，见 llm.py；不再依赖 hiring-agent）
 # --------------------------------------------------------------------------- #
-def make_hiring_agent_chat_fn(model_name: Optional[str] = None) -> ChatFn:
-    """把 hiring-agent 的 LLM provider 包成 chat_fn。
-
-    需要 hiring-agent 在 sys.path 上，且配好 Ollama 或 Gemini。
-    """
-    import sys
-    from pathlib import Path
-
-    ha = Path(__file__).resolve().parent.parent / "hiring-agent"
-    if str(ha) not in sys.path:
-        sys.path.insert(0, str(ha))
-
-    from llm_utils import initialize_llm_provider, extract_json_from_response
-    from prompt import DEFAULT_MODEL
-
-    model = model_name or DEFAULT_MODEL
-    provider = initialize_llm_provider(model)
-
-    def chat_fn(messages: List[Dict[str, str]]) -> str:
-        resp = provider.chat(
-            model=model,
-            messages=messages,
-            options={"temperature": 0.3, "top_p": 0.9, "stream": False},
-        )
-        return extract_json_from_response(resp["message"]["content"])
-
-    return chat_fn
+def make_chat_fn(model_name: Optional[str] = None) -> ChatFn:
+    """构造 LLM chat_fn（Ollama / Gemini，自包含）。"""
+    from llm import make_chat_fn as _make
+    return _make(model_name)

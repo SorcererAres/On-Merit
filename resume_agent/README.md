@@ -1,15 +1,20 @@
 # Resume Agent
 
-把 **hiring-agent**（评分）与 **Kami**（排版）组合成「生成 × 评估」闭环的简历 agent：
+「生成 × 评估」闭环的简历 agent（**自包含单一项目**，运行时不依赖外部 clone）：
 
 ```
-问卷/PDF -> JSON Resume -> 评分 -> 事实约束改写 -> 再评分 -> Kami 渲染 PDF
+问卷/PDF -> JSON Resume -> 评分 -> 事实约束改写 -> 再评分 -> Kami 风格渲染 PDF
                             ▲__________________________|
                               loop until 达标 / 收敛
 ```
 
 核心理念：把招聘方的评分标准反过来当作求职者的优化目标，**全程不造假**——改写只重述已有事实，
-靠真实材料才能拿的分（如开源贡献）只提示「需真实补充」。
+靠真实材料才能拿的分（如作品集/开源）只提示「需真实补充」。
+
+> 起源：把 [Kami](https://github.com/tw93/Kami)（排版）与
+> [hiring-agent](https://github.com/interviewstreet/hiring-agent)（评分）组合而来；现已把所需部分
+> （Kami 模板 vendor 进 `assets/`、评分用自研可插拔 rubric、LLM provider 见 `llm.py`）收进本项目，
+> 两个上游 clone 已归档为根目录 `*.tar.gz`，运行时不再需要。
 
 完整设计见上级目录 [`../DESIGN.md`](../DESIGN.md)。
 
@@ -23,7 +28,9 @@
 | `resume_diff.py` | 通用递归 diff：全字段展示每轮改动，新增内容标注「请核对」 |
 | `validate.py` | 输入形状校验：管线入口对畸形 JSON Resume fail-fast |
 | `rubrics.py` | 可插拔评分维度：engineer / designer / pm / data / marketing（每岗位 4 维、满分 100） |
-| `evaluate.py` | 角色无关 LLM 评估器：按 rubric 评分，不依赖 hiring-agent 写死逻辑 |
+| `evaluate.py` | 角色无关 LLM 评估器：按 rubric 评分 + 严格校验 + 公平性脱敏 |
+| `llm.py` | 自包含 LLM provider：Ollama / Gemini -> 统一 chat_fn |
+| `assets/templates/` | vendor 进来的 Kami 简历模板（zh/en/ko），渲染自包含 |
 | `resume_agent.py` | 闭环编排：评估-改写-渲染 + 收敛 + 保留最高分 + 报告 |
 | `brand.py` | `~/.config/kami/brand.md` 兜底接入（仅填缺失字段） |
 | `questionnaire.py` | 从零引导问卷 -> JSON Resume |

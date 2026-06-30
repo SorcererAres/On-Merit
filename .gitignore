@@ -1,4 +1,6 @@
-# 上游 clone（各自带 .git，不纳入本仓库；按需各自更新）
+# 上游 clone 已归档为 tar.gz（体积大、可从 GitHub 重新获取，不入库）
+# Kami: github.com/tw93/Kami   hiring-agent: github.com/interviewstreet/hiring-agent
+*.tar.gz
 Kami/
 hiring-agent/
 
@@ -9,9 +11,11 @@ __pycache__/
 .venv/
 venv/
 
-# 生成/临时产物（resume_agent 只含 .py/.json/.md，渲染产物不入库）
+# 生成/临时产物（渲染产物不入库）
 *.pdf
 *.html
+# 但 vendor 的 Kami 模板是源文件，必须入库
+!resume_agent/assets/templates/*.html
 smoke_out.*
 scratchpad/
 

@@ -10,7 +10,7 @@ import json
 import time
 from pathlib import Path
 
-from resume_agent import run, format_report, build_real_deps
+from resume_agent import run, format_report, build_rubric_deps
 import kami_adapter
 
 
@@ -18,18 +18,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="gemma4:latest")
     ap.add_argument("--rounds", type=int, default=2)
+    ap.add_argument("--role", default="engineer")
     ap.add_argument("--resume", default="sample_resume.json")
     ap.add_argument("-o", "--out", default=None)
     args = ap.parse_args()
 
     resume = json.loads(Path(args.resume).read_text("utf-8"))
-    print(f"[smoke] 模型={args.model} 轮数={args.rounds}，构建真实依赖中...")
-    evaluate_fn, chat_fn = build_real_deps(args.model)
+    print(f"[smoke] 模型={args.model} 岗位={args.role} 轮数={args.rounds}...")
+    evaluate_fn, chat_fn, rubric = build_rubric_deps(args.role, args.model)
 
     t0 = time.time()
     result = run(
         resume, evaluate_fn, chat_fn,
-        target=85, max_rounds=args.rounds, lang="zh",
+        target=85, max_rounds=args.rounds, lang="zh", rubric=rubric,
     )
     dt = time.time() - t0
     print(format_report(result))

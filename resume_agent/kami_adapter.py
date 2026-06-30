@@ -29,8 +29,10 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-# Kami 仓库相对本文件的位置：../Kami
-KAMI_ROOT = Path(__file__).resolve().parent.parent / "Kami"
+# 模板已 vendor 进本项目（assets/templates）；不再依赖外部 Kami clone。
+# Kami 正文字体（TsangerJinKai02 等）体积大且商用受限，不打包：模板 @font-face 走
+# jsDelivr CDN 回退（与 Kami 官方安装态一致），渲染时联网即可拿到字体。
+TEMPLATES_DIR = Path(__file__).resolve().parent / "assets" / "templates"
 TEMPLATE_BY_LANG = {
     "zh": "resume.html",
     "en": "resume-en.html",
@@ -526,7 +528,7 @@ def render_html(
         work = resume.get("work") or []
         role = work[0].get("position") if work else None
 
-    template_path = KAMI_ROOT / "assets" / "templates" / TEMPLATE_BY_LANG.get(lang, "resume.html")
+    template_path = TEMPLATES_DIR / TEMPLATE_BY_LANG.get(lang, "resume.html")
     if not template_path.exists():
         raise FileNotFoundError(f"找不到 Kami 模板：{template_path}")
 
@@ -558,7 +560,7 @@ def render_pdf(html_str: str, out_path: Path, lang: str = "zh") -> bool:
     except Exception:
         return False
     # base_url 指向模板目录，让 ../fonts 等相对路径可解析
-    base = KAMI_ROOT / "assets" / "templates"
+    base = TEMPLATES_DIR
     HTML(string=html_str, base_url=str(base)).write_pdf(str(out_path))
     return True
 
