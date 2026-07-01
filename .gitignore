@@ -14,10 +14,26 @@ venv/
 # 生成/临时产物（渲染产物不入库）
 *.pdf
 *.html
-# 但 vendor 的 Kami 模板是源文件，必须入库
+# 但这些 html 是源文件，必须入库
 !resume_agent/assets/templates/*.html
+!resume_agent/webapp/frontend/index.html
 smoke_out.*
 scratchpad/
 
+# 预览配置（含机器/会话相关路径，不入库）
+.claude/launch.json
+
+# 密钥（.env 只入本地，绝不入库；.env.example 是占位模板，要入库）
+.env
+!.env.example
+
+# 前端 node 依赖与构建产物
+node_modules/
+resume_agent/webapp/frontend/node_modules/
+resume_agent/webapp/static/assets/
+
 # 系统
 .DS_Store
+
+# TS 构建缓存
+*.tsbuildinfo

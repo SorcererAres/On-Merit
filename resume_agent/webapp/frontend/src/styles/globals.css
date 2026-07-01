@@ -1,0 +1,15 @@
+/* ==========================================================================
+ * 应用样式入口
+ * --------------------------------------------------------------------------
+ * 在 main.tsx 里 `import "@/styles/globals.css"`。
+ * 先 @import token（CSS 规范要求 @import 位于所有其他规则之前），
+ * 再挂载 Tailwind 三层。shadcn CLI 也以本文件为目标 CSS。
+ * ========================================================================== */
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* shadcn 组件默认在 @layer base 里给 body 铺 bg-background/text-foreground；
+   tokens.css 已直接设定 body 底色，二者一致，无需重复。 */
