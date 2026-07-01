@@ -38,6 +38,10 @@ DEFAULT_DEEPSEEK_MODEL = "deepseek-chat"
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
 _VALID_PROVIDERS = ("ollama", "gemini", "openai", "deepseek")
 
+# 视觉 OCR（扫描件/图片简历）：默认通义千问 Qwen-VL-max，走 DashScope 的 OpenAI 兼容端点。
+DEFAULT_QWEN_VL_MODEL = "qwen-vl-max"
+QWEN_VL_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
 # 仅匹配「响应最开头的一个完整 <think>...</think> 块」
 _LEAD_THINK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
 # 仅匹配「包裹整段的单层 ```lang ... ``` 围栏」
@@ -174,6 +178,88 @@ def _openai_chat_fn(model: str, base_url: str, api_key: str) -> ChatFn:
         raise LLMConfigError(f"{base_url} 多次重试仍失败（model={model}，最后：{last}）")
 
     return chat_fn
+
+
+def _img_mime(data: bytes) -> str:
+    """按魔数嗅探图片 MIME，供 data URI 使用（PDF 栅格化产 PNG；上传可能是 JPEG 等）。"""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] in (b"BM",):
+        return "image/bmp"
+    return "image/png"  # 兜底按 PNG（多数分支产出 PNG）
+
+
+# OCR 可注入抽象：输入图片(bytes 列表) + 提示词，返回识别文本。
+VisionOcrFn = Callable[[List[bytes], str], str]
+
+
+def make_vision_ocr_fn(
+    model: str | None = None, base_url: str | None = None, api_key: str | None = None
+) -> VisionOcrFn:
+    """构造视觉 OCR 调用（默认通义千问 Qwen-VL-max / DashScope OpenAI 兼容）。
+
+    key 读 QWEN_API_KEY 或 DASHSCOPE_API_KEY；缺 key 立即 LLMConfigError（可插拔：
+    调用方据此把「扫描件 OCR」降级为明确报错，而不静默出错）。
+    """
+    key = (api_key or os.getenv("QWEN_API_KEY") or os.getenv("DASHSCOPE_API_KEY") or "").strip()
+    if not key:
+        raise LLMConfigError(
+            "扫描件/图片 OCR 需要视觉模型 key：请设置 QWEN_API_KEY（通义千问 Qwen-VL，DashScope）")
+    mdl = model or os.getenv("QWEN_VL_MODEL", DEFAULT_QWEN_VL_MODEL)
+    base = (base_url or os.getenv("QWEN_VL_BASE_URL") or QWEN_VL_BASE_URL).rstrip("/")
+    url = base + "/chat/completions"
+
+    def ocr_fn(images: List[bytes], prompt: str) -> str:
+        import base64
+        import httpx
+        if not images:
+            raise LLMConfigError("OCR 未收到任何图片")
+        content: List[Dict] = [{"type": "text", "text": prompt}]
+        for img in images:
+            b64 = base64.b64encode(img).decode()
+            content.append({"type": "image_url",
+                            "image_url": {"url": f"data:{_img_mime(img)};base64,{b64}"}})
+        payload = {"model": mdl, "messages": [{"role": "user", "content": content}],
+                   "temperature": 0.0, "stream": False}
+        last = ""
+        for attempt in range(3):
+            try:
+                resp = httpx.post(
+                    url,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json=payload, timeout=httpx.Timeout(180.0, connect=10.0), trust_env=True)
+            except httpx.TimeoutException:
+                last = "超时"; time.sleep(2 ** attempt); continue
+            except Exception as e:
+                raise LLMConfigError(
+                    f"调用视觉模型 {base}（model={mdl}）网络失败：{' '.join(str(e).split())[:120]}") from None
+            code = resp.status_code
+            if code == 401:
+                raise LLMConfigError(f"{base} 鉴权失败（401）：视觉模型 API key 无效或已过期")
+            if code == 429 or code >= 500:
+                last = str(code); time.sleep(2 ** attempt); continue
+            if code >= 400:
+                try:
+                    d = " ".join(str((resp.json().get("error") or {}).get("message")).split())[:160]
+                except Exception:
+                    d = ""
+                raise LLMConfigError(f"{base} 返回 {code}" + (f"：{d}" if d else ""))
+            try:
+                text = resp.json()["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, ValueError, TypeError) as e:
+                raise LLMConfigError(f"{base} 视觉响应结构异常（model={mdl}）：{e}") from None
+            if isinstance(text, list):  # 某些实现把 content 返回成分段数组
+                text = "".join(p.get("text", "") for p in text if isinstance(p, dict))
+            if not isinstance(text, str) or not text.strip():
+                raise LLMConfigError(f"{base} 视觉返回空内容（model={mdl}）")
+            return _strip_fence(text)
+        raise LLMConfigError(f"{base} 视觉多次重试仍失败（model={mdl}，最后：{last}）")
+
+    return ocr_fn
 
 
 def make_chat_fn(model_name: str | None = None, provider: str | None = None) -> ChatFn:

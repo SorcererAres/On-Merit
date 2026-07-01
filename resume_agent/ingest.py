@@ -19,8 +19,61 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from validate import ensure_valid
+from jsonx import parse_json_lenient
 
 ChatFn = Callable[[List[Dict[str, str]]], str]
+
+# 字段别名 → JSON Resume 规范名（借鉴 JadeAI 的包容映射，减少「字段名不对→校验失败→重试」）。
+# 仅在规范键缺失时改名，绝不覆盖已有值；不做任何造假，只是把同义键归位。
+_TOP_ALIASES = {
+    "workExperience": "work", "work_experience": "work", "experience": "work", "工作经历": "work",
+    "educations": "education", "教育经历": "education", "教育背景": "education",
+    "skill": "skills", "技能": "skills",
+    "project": "projects", "项目": "projects", "项目经历": "projects",
+    "certificate": "certificates", "证书": "certificates",
+}
+_BASICS_ALIASES = {
+    "fullName": "name", "full_name": "name", "姓名": "name",
+    "e_mail": "email", "mail": "email", "邮箱": "email",
+    "phone_number": "phone", "mobile": "phone", "tel": "phone", "电话": "phone", "手机": "phone",
+    "website": "url", "homepage": "url", "个人主页": "url", "个人网站": "url",
+    "about": "summary", "个人简介": "summary", "自我评价": "summary",
+}
+_WORK_ALIASES = {
+    "company": "name", "employer": "name", "公司": "name",
+    "title": "position", "job_title": "position", "jobTitle": "position", "职位": "position", "岗位": "position",
+    "start_date": "startDate", "startdate": "startDate", "开始时间": "startDate",
+    "end_date": "endDate", "enddate": "endDate", "结束时间": "endDate",
+    "responsibilities": "summary", "描述": "summary", "职责": "summary",
+    "achievements": "highlights", "亮点": "highlights",
+}
+_EDU_ALIASES = {
+    "school": "institution", "学校": "institution", "院校": "institution",
+    "degree": "studyType", "学历": "studyType", "major": "area", "专业": "area", "gpa": "score",
+}
+
+
+def _rename(d: Any, aliases: Dict[str, str]) -> Any:
+    if isinstance(d, dict):
+        for alias, canon in aliases.items():
+            if alias in d and canon not in d:
+                d[canon] = d.pop(alias)
+    return d
+
+
+def _normalize_aliases(resume: Dict[str, Any]) -> Dict[str, Any]:
+    """把常见别名字段名归一到 JSON Resume 规范名（结构化后、校验前调用）。"""
+    if not isinstance(resume, dict):
+        return resume
+    _rename(resume, _TOP_ALIASES)
+    if isinstance(resume.get("basics"), dict):
+        _rename(resume["basics"], _BASICS_ALIASES)
+    # 畸形结构（非 list/非 dict）不在此处理，原样交给 ensure_valid 报错
+    for w in resume.get("work") if isinstance(resume.get("work"), list) else []:
+        _rename(w, _WORK_ALIASES)
+    for e in resume.get("education") if isinstance(resume.get("education"), list) else []:
+        _rename(e, _EDU_ALIASES)
+    return resume
 
 
 # --------------------------------------------------------------------------- #
@@ -60,6 +113,77 @@ def pdf_to_text(pdf_path: str) -> str:
         # 不静默丢尾部：截断并由调用方告警
         text = text[:MAX_PDF_CHARS] + "\n[文本超长已截断，尾部经历可能缺失]"
     return text
+
+
+# --------------------------------------------------------------------------- #
+# 扫描件 / 图片 -> OCR 文本（视觉模型）
+# --------------------------------------------------------------------------- #
+IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+_MAX_OCR_PAGES = 12  # 扫描件页数上限，控制视觉调用成本/上下文
+
+# OcrFn 约定：输入图片(PNG/JPEG bytes 列表) + 提示词，返回识别文本（见 llm.make_vision_ocr_fn）。
+OcrFn = Callable[[List[bytes], str], str]
+
+OCR_PROMPT = (
+    "这是一份简历的图片（可能多页）。请【逐字转写】其中的所有文字，保持原有的分段、顺序与层级，"
+    "输出纯文本。不要翻译、不要总结、不要润色，绝不编造图片中没有的任何文字、数字或经历。"
+)
+
+
+def pdf_to_images(pdf_path: str, max_pages: int = _MAX_OCR_PAGES, zoom: float = 2.0) -> List[bytes]:
+    """把 PDF 每页栅格化成 PNG bytes（扫描件走 OCR 前置步）。zoom=2 约 144dpi，兼顾清晰与体积。"""
+    try:
+        import fitz
+    except ImportError as e:
+        raise RuntimeError("需要 PyMuPDF：pip install pymupdf") from e
+    if not Path(pdf_path).is_file():
+        raise FileNotFoundError(f"PDF 不存在：{pdf_path}")
+    try:
+        doc = fitz.open(pdf_path)
+    except Exception as e:
+        raise RuntimeError(f"无法打开 PDF（可能损坏/加密）：{e}") from None
+    try:
+        if doc.page_count == 0:
+            raise ValueError("PDF 为空（0 页）")
+        mat = fitz.Matrix(zoom, zoom)
+        return [doc[i].get_pixmap(matrix=mat).tobytes("png")
+                for i in range(min(doc.page_count, max_pages))]
+    finally:
+        doc.close()
+
+
+def ocr_images(images: List[bytes], ocr_fn: OcrFn) -> str:
+    """对图片列表做视觉 OCR，返回识别文本。空结果视为失败。"""
+    if not images:
+        raise ValueError("无图片可 OCR")
+    text = (ocr_fn(images, OCR_PROMPT) or "").strip()
+    if not text:
+        raise ValueError("OCR 未识别出任何文本（图片可能过糊/为空）")
+    if len(text) > MAX_PDF_CHARS:
+        text = text[:MAX_PDF_CHARS] + "\n[文本超长已截断，尾部经历可能缺失]"
+    return text
+
+
+def source_to_text(path: str, ocr_fn: OcrFn | None = None) -> tuple[str, bool]:
+    """把上传的简历（PDF 或图片）转成文本，返回 (文本, 是否用了 OCR)。
+
+    - 图片文件（png/jpg/...）：直接视觉 OCR；
+    - PDF：先试 PyMuPDF 抽文本；若是扫描件（无可抽文本）且配了 ocr_fn，则栅格化后 OCR 回退。
+    未配 ocr_fn 却需要 OCR 时抛 ValueError（明确失败，交上层提示配置视觉 key）。
+    """
+    ext = Path(path).suffix.lower()
+    if ext in IMAGE_EXTS:
+        if ocr_fn is None:
+            raise ValueError("图片简历需要视觉 OCR，但未配置视觉模型 key（QWEN_API_KEY）")
+        return ocr_images([Path(path).read_bytes()], ocr_fn), True
+    try:
+        return pdf_to_text(path), False
+    except ValueError as e:
+        if "无可抽取文本" in str(e) and ocr_fn is not None:  # 扫描件回退 OCR
+            return ocr_images(pdf_to_images(path), ocr_fn), True
+        if "无可抽取文本" in str(e):
+            raise ValueError("疑似扫描件/图片版 PDF，需要视觉 OCR：请配置 QWEN_API_KEY（通义千问 Qwen-VL）") from None
+        raise
 
 
 # --------------------------------------------------------------------------- #
@@ -103,20 +227,8 @@ def build_ingest_prompt(text: str) -> List[Dict[str, str]]:
 
 
 def _parse_resume_json(raw: str) -> Dict[str, Any]:
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    start, end = raw.find("{"), raw.rfind("}")
-    if start != -1 and end != -1:
-        raw = raw[start : end + 1]
-    # 拒绝 NaN/Infinity（json.loads 默认会接受）
-    obj = json.loads(raw, parse_constant=lambda c: (_ for _ in ()).throw(
-        ValueError(f"非法 JSON 常量：{c}")))
-    if not isinstance(obj, dict):
-        raise ValueError(f"结构化输出根节点不是 JSON 对象，而是 {type(obj).__name__}")
-    return obj
+    # 分级容错解析（去围栏/截断/尾逗号/拒 NaN·Inf），见 jsonx.py
+    return _normalize_aliases(parse_json_lenient(raw, root="object"))
 
 
 import re

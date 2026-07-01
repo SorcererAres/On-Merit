@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from jsonx import parse_json_lenient
 from improver import (
     ChatFn,
     ImproveResult,
@@ -233,18 +234,7 @@ def _new_numbers(old: Dict[str, Any], new: Dict[str, Any]) -> set:
 
 
 def _parse_patches(text: str) -> List[Dict[str, Any]]:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1]
-        if text.startswith("json"):
-            text = text[4:]
-    start, end = text.find("["), text.rfind("]")
-    if start != -1 and end != -1:
-        text = text[start : end + 1]
-    obj = json.loads(text)
-    if not isinstance(obj, list):
-        raise ValueError(f"补丁输出根节点不是数组，而是 {type(obj).__name__}")
-    return obj
+    return parse_json_lenient(text, root="array")  # 分级容错解析，见 jsonx.py
 
 
 def improve_via_patch(

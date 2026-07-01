@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List
 
 from validate import ensure_valid
 from evaluate import resume_to_text
+from jsonx import parse_json_lenient
 
 ChatFn = Callable[[List[Dict[str, str]]], str]
 
@@ -57,18 +58,7 @@ def build_requirements_prompt(jd_text: str) -> List[Dict[str, str]]:
 
 
 def _parse_array(raw: str) -> List[Any]:
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    start, end = raw.find("["), raw.rfind("]")
-    if start != -1 and end != -1:
-        raw = raw[start : end + 1]
-    obj = json.loads(raw, parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
-    if not isinstance(obj, list):
-        raise ValueError(f"要求输出根节点不是数组，而是 {type(obj).__name__}")
-    return obj
+    return parse_json_lenient(raw, root="array")  # 分级容错解析，见 jsonx.py
 
 
 def _norm_reqs(raw: List[Any]) -> List[Dict[str, str]]:

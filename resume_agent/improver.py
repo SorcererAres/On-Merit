@@ -23,6 +23,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from jsonx import parse_json_lenient
+
 # chat_fn 约定：输入 messages（OpenAI 风格 [{role, content}]），返回模型文本。
 ChatFn = Callable[[List[Dict[str, str]]], str]
 
@@ -298,19 +300,7 @@ class ImproveResult:
 
 
 def _parse_resume(text: str) -> Dict[str, Any]:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1]
-        if text.startswith("json"):
-            text = text[4:]
-    # 取第一个 { 到最后一个 }，容错模型多说话
-    start, end = text.find("{"), text.rfind("}")
-    if start != -1 and end != -1:
-        text = text[start : end + 1]
-    obj = json.loads(text)
-    if not isinstance(obj, dict):
-        raise ValueError(f"模型输出根节点不是 JSON 对象，而是 {type(obj).__name__}")
-    return obj
+    return parse_json_lenient(text, root="object")  # 分级容错解析，见 jsonx.py
 
 
 def improve(
