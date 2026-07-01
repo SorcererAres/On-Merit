@@ -14,7 +14,7 @@ export function MatchReportView({ report }: { report: MatchReport }) {
           硬性要求 {s.must_covered}/{s.must_total} 已覆盖 · 覆盖指数≠面试率
         </div>
       </div>
-      <div className="my-3"><Progress value={s.coverage_pct} label={`覆盖指数 ${s.coverage_pct}%`} /></div>
+      <div className="my-3"><Progress name="证据覆盖指数" value={s.coverage_pct} label={`覆盖指数 ${s.coverage_pct}%`} /></div>
 
       {s.must_risks?.length > 0 && (
         <Alert tone="red" className="my-3">

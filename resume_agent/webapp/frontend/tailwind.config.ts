@@ -92,6 +92,7 @@ export default {
         destructive: {
           DEFAULT: "var(--destructive)",
           foreground: "var(--destructive-foreground)",
+          hover: "var(--destructive-hover)", // → bg-destructive-hover（a11y 安全的暗化 hover）
         },
         border: "var(--border)",
         input: "var(--input)",

@@ -194,6 +194,8 @@
   --accent-foreground: var(--gray-1000);
   --destructive: var(--red-800);
   --destructive-foreground: #ffffff;
+  /* hover 向黑色混 12%：两主题都变暗，白字对比度只增不减（不用 opacity，避免连文字一起淡） */
+  --destructive-hover: color-mix(in srgb, var(--destructive) 88%, #000);
   --border: var(--gray-alpha-400);
   --input: var(--gray-alpha-400);
   --ring: var(--blue-700); /* Light 聚焦环 = blue-700 */
@@ -340,6 +342,7 @@
   --accent-foreground: var(--gray-1000);
   --destructive: var(--red-800);
   --destructive-foreground: #ffffff;
+  --destructive-hover: color-mix(in srgb, var(--destructive) 88%, #000);
   --border: var(--gray-alpha-400);
   --input: var(--gray-alpha-400);
   --ring: var(--blue-900); /* Dark 聚焦环 = blue-900 */
