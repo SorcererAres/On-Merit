@@ -27,6 +27,9 @@ scratchpad/
 .env
 !.env.example
 
+# 简历持久化数据库（本地数据，不入库）
+resume_agent/webapp/data/
+
 # 前端 node 依赖与构建产物
 node_modules/
 resume_agent/webapp/frontend/node_modules/

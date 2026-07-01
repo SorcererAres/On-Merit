@@ -45,6 +45,7 @@ from patcher import improve_via_patch
 from resume_diff import diff_resume
 from validate import validate_resume
 from llm import make_chat_fn, make_vision_ocr_fn, LLMConfigError
+from db import get_repo, NotFound as RepoNotFound, Conflict as RepoConflict
 
 app = FastAPI(title="Resume Agent")
 
@@ -101,6 +102,16 @@ async def _h_api(request: Request, exc: ApiError):
 async def _h_llm(request: Request, exc: LLMConfigError):
     return JSONResponse(
         status_code=503, content=_envelope(request, "LLM_UNAVAILABLE", str(exc), retryable=True))
+
+
+@app.exception_handler(RepoNotFound)
+async def _h_notfound(request: Request, exc: RepoNotFound):
+    return JSONResponse(status_code=404, content=_envelope(request, "NOT_FOUND", str(exc)))
+
+
+@app.exception_handler(RepoConflict)
+async def _h_conflict(request: Request, exc: RepoConflict):
+    return JSONResponse(status_code=409, content=_envelope(request, "VERSION_CONFLICT", str(exc), retryable=True))
 
 
 @app.exception_handler(Exception)
@@ -193,6 +204,30 @@ class DetectRoleReq(BaseModel):
 class AutoImproveReq(BaseModel):
     resume: Dict[str, Any]
     role: str = "engineer"
+
+
+class ResumeCreateReq(BaseModel):
+    title: Optional[str] = None
+    role: Optional[str] = None
+    jd: str = ""
+    data: Optional[Dict[str, Any]] = None
+    export_md: Optional[str] = None
+
+
+class ResumeUpdateReq(BaseModel):
+    version: int                       # 乐观并发：必带
+    title: Optional[str] = None
+    role: Optional[str] = None
+    jd: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+    export_md: Optional[str] = None
+    note: str = "修改前"
+    fields: Optional[List[str]] = None  # 显式声明本次要改的字段（区分「设为 None」与「不改」）
+
+
+class RollbackReq(BaseModel):
+    revisionId: str
+    version: int
 
 
 # --------------------------------------------------------------------------- #
@@ -346,6 +381,82 @@ def api_render(req: RenderReq):
 @app.get("/api/roles")
 def api_roles():
     return {"roles": [{"key": k, "label": r.role} for k, r in rubrics.RUBRICS.items()]}
+
+
+# --------------------------------------------------------------------------- #
+# 多简历持久化（见 docs/plans/multi-resume-persistence.md）
+# --------------------------------------------------------------------------- #
+def _check_role(role: str):
+    if role not in rubrics.RUBRICS:
+        raise ApiError("BAD_ROLE", f"未知岗位：{role}")
+
+
+def _check_data(data: Dict[str, Any]):
+    errs = validate_resume(data)
+    if errs:
+        raise ApiError("BAD_RESUME", f"简历结构不合法：{errs[0]}")
+
+
+@app.get("/api/resumes")
+def api_resumes_list():
+    return {"resumes": get_repo().list()}
+
+
+@app.post("/api/resumes")
+def api_resumes_create(req: ResumeCreateReq):
+    role = req.role or "engineer"
+    _check_role(role)
+    data = req.data if req.data is not None else {"basics": {}}
+    _check_data(data)
+    title = (req.title or "").strip() or (data.get("basics") or {}).get("name") or "未命名简历"
+    return get_repo().create(title, role, req.jd, data, req.export_md)
+
+
+@app.get("/api/resumes/{rid}")
+def api_resumes_get(rid: str):
+    return get_repo().get(rid)                       # RepoNotFound → 404
+
+
+@app.put("/api/resumes/{rid}")
+def api_resumes_update(rid: str, req: ResumeUpdateReq):
+    patch: Dict[str, Any] = {}
+
+    def want(name: str, val: Any):
+        # 有 fields：精确按声明改（允许显式设 None，如清空 export_md）；无 fields：只改非 None 值
+        if req.fields is not None:
+            if name in req.fields:
+                patch[name] = val
+        elif val is not None:
+            patch[name] = val
+
+    want("title", req.title); want("role", req.role); want("jd", req.jd)
+    want("data", req.data); want("export_md", req.export_md)
+    if "role" in patch:
+        _check_role(patch["role"])
+    if "data" in patch:
+        _check_data(patch["data"])
+    return get_repo().update(rid, patch, req.version, req.note)  # RepoNotFound→404 / RepoConflict→409
+
+
+@app.delete("/api/resumes/{rid}")
+def api_resumes_delete(rid: str):
+    get_repo().delete(rid)
+    return {"deleted": True}
+
+
+@app.post("/api/resumes/{rid}/duplicate")
+def api_resumes_duplicate(rid: str):
+    return get_repo().duplicate(rid)
+
+
+@app.get("/api/resumes/{rid}/revisions")
+def api_resumes_revisions(rid: str):
+    return {"revisions": get_repo().list_revisions(rid)}
+
+
+@app.post("/api/resumes/{rid}/rollback")
+def api_resumes_rollback(rid: str, req: RollbackReq):
+    return get_repo().rollback(rid, req.revisionId, req.version)
 
 
 # 静态：优先 Vite 构建产物；无则回退旧壳（开发时用 vite dev 代理）
