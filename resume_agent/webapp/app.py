@@ -39,9 +39,12 @@ import jd_match as jm
 import kami_adapter
 import evaluate as ev_mod
 import rubrics
+import role_detect
 from improver import total_score, max_total, fact_gap_report
+from patcher import improve_via_patch
+from resume_diff import diff_resume
 from validate import validate_resume
-from llm import make_chat_fn, LLMConfigError
+from llm import make_chat_fn, make_vision_ocr_fn, LLMConfigError
 
 app = FastAPI(title="Resume Agent")
 
@@ -53,6 +56,14 @@ def chat():
     if prov == "ollama":
         return make_chat_fn(os.getenv("OLLAMA_MODEL", "gemma4:latest"))
     return make_chat_fn()
+
+
+def vision_ocr():
+    """构造视觉 OCR（扫描件/图片简历用）。未配 QWEN_API_KEY 时返回 None（可插拔，不阻塞文本管线）。"""
+    try:
+        return make_vision_ocr_fn()
+    except LLMConfigError:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -174,34 +185,58 @@ class RenderReq(BaseModel):
     role: Optional[str] = None
 
 
+class DetectRoleReq(BaseModel):
+    resume: Optional[Dict[str, Any]] = None
+    jd: str = ""                       # 有 JD 以 JD 推断为准
+
+
+class AutoImproveReq(BaseModel):
+    resume: Dict[str, Any]
+    role: str = "engineer"
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
+_ALLOWED_UPLOAD_EXTS = (".pdf",) + ingest_mod.IMAGE_EXTS
+
+
 @app.post("/api/ingest")
 async def api_ingest(request: Request, file: Optional[UploadFile] = File(None), text: str = Form("")):
+    used_ocr = False
     if file is not None:
         import tempfile
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in _ALLOWED_UPLOAD_EXTS:
+            ext = ".pdf"  # 无/未知后缀按 PDF 处理（扫描件仍会回退 OCR）
         data = await file.read()
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tf:
             tf.write(data)
             tmp = tf.name
 
+        ocr_fn = vision_ocr()  # 未配 QWEN_API_KEY 则为 None，图片/扫描件会明确报错
+
         def work():
             try:
-                return ingest_mod.pdf_to_text(tmp)
+                return ingest_mod.source_to_text(tmp, ocr_fn=ocr_fn)  # (文本, 是否 OCR)
             finally:
                 os.unlink(tmp)
-        src_text = await run_in_threadpool(work)
+        try:
+            src_text, used_ocr = await run_in_threadpool(work)
+        except ValueError as e:
+            raise ApiError("INGEST_FAILED", str(e), retryable=False)
     elif text.strip():
         src_text = text
     else:
-        raise ApiError("NO_INPUT", "请上传 PDF 或粘贴文本")
+        raise ApiError("NO_INPUT", "请上传 PDF / 图片或粘贴文本")
     try:
         resume = await run_in_threadpool(ingest_mod.text_to_resume, src_text, chat())
     except ValueError as e:
         raise ApiError("INGEST_FAILED", f"结构化失败：{e}", retryable=True)
     warns = ingest_mod.grounding_warnings(resume, src_text)
-    return {"resume": resume, "warnings": _warns(warns)}
+    if used_ocr:  # OCR 可能丢字/串行，提示重点核对
+        warns = ["本简历经图片 OCR 识别，个别文字可能有误，请在下一步逐项核对。"] + warns
+    return {"resume": resume, "warnings": _warns(warns), "usedOcr": used_ocr}
 
 
 @app.post("/api/validate")
@@ -223,11 +258,45 @@ def api_improve(req: MatchReq):
         before, improved, imp = jm.match_and_improve(req.jd, req.resume, chat())
     except ValueError as e:
         raise ApiError("IMPROVE_FAILED", f"改写失败：{e}", retryable=True)
-    from resume_diff import diff_resume
     changes = [{"kind": c.kind, "path": c.path, "old": c.old, "new": c.new}
                for c in diff_resume(req.resume, improved)]
     return {"before": _report_dict(before), "changes": changes,
             "notes": imp.notes, "must_supplements": imp.must_supplements}
+
+
+@app.post("/api/detect-role")
+def api_detect_role(req: DetectRoleReq):
+    """自动检测岗位方向：有 JD 以 JD 为准，否则用简历文本。返回 rubric key + 中文标签。"""
+    if req.jd.strip():
+        text = req.jd
+    elif req.resume:
+        text = ev_mod.resume_to_text(req.resume)  # 已脱敏（无姓名/院校/城市）
+    else:
+        raise ApiError("NO_INPUT", "请提供简历或 JD 以检测岗位")
+    role = role_detect.detect_role(text, chat())
+    return {"role": role, "label": rubrics.get_rubric(role).role}
+
+
+@app.post("/api/auto-improve")
+def api_auto_improve(req: AutoImproveReq):
+    """无 JD 时的『自动修改』：按 rubric 体检弱项做 patch 改写（结构造假物理不可能）。
+
+    先评分定位弱项，再 improve_via_patch；返回改动 diff + 评估基线 + 说明 + 事实缺口。
+    """
+    if req.role not in rubrics.RUBRICS:
+        raise ApiError("BAD_ROLE", f"未知岗位：{req.role}")
+    rubric = rubrics.get_rubric(req.role)
+    try:
+        evaluation = ev_mod.evaluate(req.resume, rubric, chat())
+        result = improve_via_patch(req.resume, evaluation, chat(), rubric=rubric)
+    except ValueError as e:
+        raise ApiError("IMPROVE_FAILED", f"自动修改失败：{e}", retryable=True)
+    changes = [{"kind": c.kind, "path": c.path, "old": c.old, "new": c.new}
+               for c in diff_resume(req.resume, result.resume)]
+    notes = [f"{v.kind}: {v.detail}" for v in result.violations]
+    return {"changes": changes, "notes": notes, "gaps": result.gaps,
+            "accepted": result.accepted,
+            "baseline": {"score": total_score(evaluation), "max": max_total(evaluation)}}
 
 
 @app.post("/api/apply")
@@ -289,4 +358,8 @@ if _ASSETS.is_dir():
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (STATIC / "index.html").read_text("utf-8")
+    # index.html 不缓存：hash 化的 bundle 名一变，浏览器立刻拿到新前端（避免旧壳缓存）。
+    return HTMLResponse(
+        (STATIC / "index.html").read_text("utf-8"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
