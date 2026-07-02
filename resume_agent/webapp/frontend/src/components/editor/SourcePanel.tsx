@@ -1,6 +1,7 @@
-// 左栏 · 原件（source_text 只读）+ 近似定位高亮。
+// 左栏 · 原件（source_text 只读）+ 原文定位高亮（空白容忍）。
 // 规则（见 wizard-flow-v2 §三）：空白归一化后长度 ≥8、在原文中**唯一出现**才高亮，否则不高亮
-// （歧义/多命中/未命中一律不高亮，避免误导）；换行/多空格差异容忍；无 source_text 则显示占位。
+// （歧义/多命中/未命中一律不高亮）。刻意不做模糊/LCS 匹配——宁可不高亮，也不给出可能误导的近似定位。
+// 因此仅容忍换行/多空格差异；标点或改写后的文本不高亮。无 source_text 则显示占位。
 import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store/useStore";
 
@@ -44,7 +45,7 @@ export function SourcePanel() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-4 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-        <span>原件</span><span className="normal-case tracking-normal">文本层 · 近似定位</span>
+        <span>原件</span><span className="normal-case tracking-normal">文本层 · 原文定位</span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words p-4 text-copy-13 leading-relaxed text-foreground">
         {!sourceText && <span className="text-muted-foreground">无原文层（粘贴导入或无文本层的扫描件不提供原件对照）。</span>}

@@ -36,6 +36,7 @@ function Thumb({ id, version }: { id: string; version: number }) {
       getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
         const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
         const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
+        for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }  // 淘汰同 id 旧版本
         _thumbCache.set(cacheKey, d); if (alive) setDoc(d);
       }).catch(() => { /* 忽略缩略图失败 */ });
     };
@@ -103,7 +104,7 @@ export function Dashboard() {
         {list?.map((r) => (
           <div key={r.id} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card">
             <button className="text-left" onClick={() => nav(`/editor/${r.id}`)} aria-label={`打开 ${r.title}`}>
-              <Thumb id={r.id} version={r.version} />
+              <Thumb key={`${r.id}:${r.version}`} id={r.id} version={r.version} />
             </button>
             <div className="flex items-center gap-2 p-3">
               <button className="min-w-0 flex-1 text-left" onClick={() => nav(`/editor/${r.id}`)}>

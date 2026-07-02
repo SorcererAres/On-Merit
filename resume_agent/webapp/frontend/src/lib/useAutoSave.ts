@@ -8,16 +8,22 @@ import { useStore } from "@/store/useStore";
 import type { ResumeRecord } from "@/store/useStore";
 
 const DEBOUNCE = 800;
+const RETRY_MS = 4000;                     // 非冲突失败后的退避重试间隔
 
 export function useAutoSave(id: string) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const timerRef = useRef<number | null>(null);
+  const retryTimerRef = useRef<number | null>(null);
+  const clearRetry = () => {
+    if (retryTimerRef.current) { window.clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+  };
 
   const run = async (): Promise<void> => {
     const s = useStore.getState();
     if (savingRef.current || s.conflict) return;
     if (s.editSeq <= s.savedSeq || !s.resume || s.resumeId !== id) return;
+    clearRetry();                          // 已进入新一次尝试，撤销待定的退避重试
     const seq = s.editSeq;                 // savePoint（title/dirty）
     const layoutSeqAtSave = s.layoutSeq;   // layout 专属 savePoint
     const loadSeq = s.loadSeq;             // 语境戳：重载后丢弃本次结果
@@ -40,9 +46,14 @@ export function useAutoSave(id: string) {
       // 语境已换（重载/切简历）：丢弃结果，不 markSaved，不 trailing
     } catch (e) {
       const cur = useStore.getState();
-      if (cur.resumeId === id && cur.loadSeq === loadSeq
-          && (e as ApiErr)?.code === "VERSION_CONFLICT") cur.setConflict();
-      // 其它错误：保持 dirty；不立即重试（避免无退避风暴），下次编辑或 saveNow 再试
+      if (cur.resumeId === id && cur.loadSeq === loadSeq && (e as ApiErr)?.code === "VERSION_CONFLICT") {
+        cur.setConflict();
+      } else if (cur.resumeId === id && cur.loadSeq === loadSeq) {
+        // 非冲突失败：延迟退避重试一次（run() 内会再校验 dirty/语境/冲突），
+        // 覆盖「失败期间又编辑、防抖调用被单飞吞掉」的情形，同时避免无退避风暴。
+        clearRetry();
+        retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runRef.current(); }, RETRY_MS);
+      }
     } finally {
       savingRef.current = false; setSaving(false);
       // 仅在「本次已成功落库」且期间有更新编辑时才 trailing——否则失败会自触发无退避死循环。
@@ -61,7 +72,7 @@ export function useAutoSave(id: string) {
         timerRef.current = window.setTimeout(() => void runRef.current(), DEBOUNCE);
       }
     });
-    return () => { unsub(); if (timerRef.current) window.clearTimeout(timerRef.current); };
+    return () => { unsub(); if (timerRef.current) window.clearTimeout(timerRef.current); clearRetry(); };
   }, []);
 
   // 立即存净：等待在途 → 补存 → 返回是否「已全部落库且无冲突」

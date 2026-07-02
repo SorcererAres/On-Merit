@@ -56,8 +56,9 @@
   - `layout_settings TEXT NULL`（JSON：`{templateId, fontScale, lineHeight, themeColor}`）。
 - **仓库/API 白名单 + 校验**：`_UPDATABLE_FIELDS` 增 `source_text`、`layout_settings`（均 nullable）。PUT 对 `layout_settings` **强校验**：`templateId ∈ 白名单枚举`、`fontScale/lineHeight` 数值边界（越界 400 或夹取）、`themeColor` 调色板枚举或 `#RRGGBB` 正则；非法 → 400，不落脏。
 - **revisions**：快照/回滚/duplicate 一并带上这两列（完整文档快照，回滚不分裂）。
-- **前端保存序**：`layout_settings` 用**独立 `layoutSeq`**（同 exportMdSeq）——回写仅在期间未再改样式时采用服务端值；**内容（data）变更只失效 `export_md`，绝不清空 `layout_settings`**（样式与内容正交）。
+- **前端保存序**：`layout_settings` 用**独立 `layoutSeq`**——回写仅在期间未再改样式时采用服务端值；**内容（data）变更绝不清空 `layout_settings`**（样式与内容正交）。
 - **`source_text` 写入路径（修 r2#2）**：不由 ingest 端点落库；`setImported` 把 ingest 返回的 `source_text` 写进 store，随既有带 version 的 autosave PUT 持久化。用户不编辑，不参与失效逻辑。
+- **`export_md` 退役（v2 决策，取代 persistence 方案 §四对应条款）**：向导 v2 的节点3 用**模板库 + 样式控制器**（`layout_settings`）取代自由 Markdown 编辑，排版完全由 `data + layout_settings` 派生，不再有可编辑的 MD 覆盖层。因此**前端不再读写 `export_md`**（store/autosave 均移除该字段），也不再有「data 变更失效 export_md」的逻辑。**后端 `export_md` 列与安全网保留**，仅用于兼容历史数据（旧记录里的手工 MD 不再在 UI 呈现——v2 无自由 MD 编辑入口，属预期）。若未来需恢复自由排版，另立方案。
 
 ## 七 反编造保留（贯穿）
 改写 patch/grounded、缺失标「需真实补充」、评分标「非面试率」、**全程无自评提升**。庆祝只包装可核验事实（采纳数/剩余缺口）。

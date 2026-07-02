@@ -12,11 +12,20 @@ import type { Resume } from "@/types";
 
 type Tab = "source" | "review" | "diagnose";
 
-// 空白：无姓名且无任何工作/项目/教育/技能——尚未录入实质内容。
+// 空白：basics 无任何实质字段，且各段落均无「含实值」的条目——尚未录入内容。
+// 空对象条目（如 work:[{}]）不算内容；basics 的姓名/联系方式/摘要任一非空即视为已开始。
+function hasVal(v: unknown): boolean {
+  if (v == null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.some(hasVal);
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).some(hasVal);
+  return true;   // number/boolean 等
+}
 function isBlank(r: Resume | null): boolean {
   if (!r) return true;
-  const b = r.basics?.name?.trim();
-  return !b && !r.work?.length && !r.projects?.length && !r.education?.length && !r.skills?.length;
+  const b = r.basics || {};
+  const basicsHas = [b.name, b.email, b.phone, b.summary, b.url].some((x) => !!x?.trim?.());
+  return !basicsHas && !hasVal(r.work) && !hasVal(r.projects) && !hasVal(r.education) && !hasVal(r.skills);
 }
 
 export function DiagnoseView({ onImport }: { onImport: () => void }) {
