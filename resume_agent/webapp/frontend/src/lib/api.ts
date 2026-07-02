@@ -32,6 +32,17 @@ export function postForm<T>(path: string, form: FormData, signal?: AbortSignal):
   return fetch(path, { method: "POST", body: form, signal }).then((r) => parse<T>(r));
 }
 
-export function getJSON<T>(path: string): Promise<T> {
-  return fetch(path).then((r) => parse<T>(r));
+export function getJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return fetch(path, { signal }).then((r) => parse<T>(r));
+}
+
+export function putJSON<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return fetch(path, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body), signal,
+  }).then((r) => parse<T>(r));
+}
+
+export function delJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return fetch(path, { method: "DELETE", signal }).then((r) => parse<T>(r));
 }

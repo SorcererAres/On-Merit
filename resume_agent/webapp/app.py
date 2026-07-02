@@ -85,6 +85,21 @@ async def _rid(request: Request, call_next):
     return resp
 
 
+# SPA 深链回退（见 frontend-wysiwyg-editor.md §一）：非 /api /assets /static 的 GET/HEAD
+# 若命中 404，回 index.html 让前端路由接管；/api 未匹配仍返引擎的 JSON 404，不吞语义。
+@app.middleware("http")
+async def _spa_fallback(request: Request, call_next):
+    resp = await call_next(request)
+    path = request.url.path
+    if (resp.status_code == 404 and request.method in ("GET", "HEAD")
+            and not path.startswith(("/api", "/assets", "/static"))):
+        index = Path(__file__).resolve().parent / "static" / "index.html"
+        if index.is_file():
+            return HTMLResponse(index.read_text("utf-8"),
+                                headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+    return resp
+
+
 def _envelope(request: Request, code, message, retryable=False, field_errors=None):
     return {"code": code, "message": " ".join(str(message).split())[:300],  # 截断，防大段 HTML
             "retryable": retryable,
