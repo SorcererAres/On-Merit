@@ -227,6 +227,8 @@ class ResumeCreateReq(BaseModel):
     jd: str = ""
     data: Optional[Dict[str, Any]] = None
     export_md: Optional[str] = None
+    source_text: Optional[str] = None
+    layout_settings: Optional[Dict[str, Any]] = None
 
 
 class ResumeUpdateReq(BaseModel):
@@ -236,6 +238,8 @@ class ResumeUpdateReq(BaseModel):
     jd: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
     export_md: Optional[str] = None
+    source_text: Optional[str] = None
+    layout_settings: Optional[Dict[str, Any]] = None
     note: str = "修改前"
     fields: Optional[List[str]] = None  # 显式声明本次要改的字段（区分「设为 None」与「不改」）
 
@@ -286,7 +290,8 @@ async def api_ingest(request: Request, file: Optional[UploadFile] = File(None), 
     warns = ingest_mod.grounding_warnings(resume, src_text)
     if used_ocr:  # OCR 可能丢字/串行，提示重点核对
         warns = ["本简历经图片 OCR 识别，个别文字可能有误，请在下一步逐项核对。"] + warns
-    return {"resume": resume, "warnings": _warns(warns), "usedOcr": used_ocr}
+    # source_text：节点1「左原件」文本层。端点只返回，落库由前端 setImported→autosave（见 wizard-flow-v2 §六）
+    return {"resume": resume, "warnings": _warns(warns), "usedOcr": used_ocr, "source_text": src_text}
 
 
 @app.post("/api/validate")
@@ -412,6 +417,39 @@ def _check_data(data: Dict[str, Any]):
         raise ApiError("BAD_RESUME", f"简历结构不合法：{errs[0]}")
 
 
+# 排版设置强校验（防版式破坏 / CSS 注入）：templateId 白名单、数值边界夹取、颜色枚举或严格 hex。
+_TEMPLATE_IDS = {"classic", "modern", "minimal", "ats"}
+_THEME_COLORS = {"ink", "teal", "royal", "rose", "forest"}
+_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _clamp(v: Any, lo: float, hi: float, default: float) -> float:
+    try:
+        return max(lo, min(hi, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _check_layout(ls: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """校验并规范 layout_settings；非法 templateId/themeColor → 400，数值越界夹取。返回净化后的 dict。"""
+    if ls is None:
+        return None
+    if not isinstance(ls, dict):
+        raise ApiError("BAD_LAYOUT", "layout_settings 必须是对象")
+    tid = ls.get("templateId", "classic")
+    if tid not in _TEMPLATE_IDS:
+        raise ApiError("BAD_LAYOUT", f"未知模板：{tid}，可选 {sorted(_TEMPLATE_IDS)}")
+    color = ls.get("themeColor", "ink")
+    if color not in _THEME_COLORS and not _HEX_RE.match(str(color)):
+        raise ApiError("BAD_LAYOUT", "themeColor 必须是预设色或 #RRGGBB")
+    return {
+        "templateId": tid,
+        "fontScale": _clamp(ls.get("fontScale", 1.0), 0.85, 1.25, 1.0),
+        "lineHeight": _clamp(ls.get("lineHeight", 1.5), 1.2, 2.0, 1.5),
+        "themeColor": color,
+    }
+
+
 @app.get("/api/resumes")
 def api_resumes_list():
     return {"resumes": get_repo().list()}
@@ -424,7 +462,8 @@ def api_resumes_create(req: ResumeCreateReq):
     data = req.data if req.data is not None else {"basics": {}}
     _check_data(data)
     title = (req.title or "").strip() or (data.get("basics") or {}).get("name") or "未命名简历"
-    return get_repo().create(title, role, req.jd, data, req.export_md)
+    layout = _check_layout(req.layout_settings)
+    return get_repo().create(title, role, req.jd, data, req.export_md, req.source_text, layout)
 
 
 @app.get("/api/resumes/{rid}")
@@ -432,8 +471,8 @@ def api_resumes_get(rid: str):
     return get_repo().get(rid)                       # RepoNotFound → 404
 
 
-_UPDATABLE_FIELDS = ("title", "role", "jd", "data", "export_md")
-_NULLABLE_FIELDS = {"export_md"}  # 其余列 NOT NULL：声明进 fields 却给 null → 400，不落到 DB 炸 500
+_UPDATABLE_FIELDS = ("title", "role", "jd", "data", "export_md", "source_text", "layout_settings")
+_NULLABLE_FIELDS = {"export_md", "source_text", "layout_settings"}  # 其余列 NOT NULL：给 null → 400
 
 
 @app.put("/api/resumes/{rid}")
@@ -459,6 +498,8 @@ def api_resumes_update(rid: str, req: ResumeUpdateReq):
         _check_role(patch["role"])
     if "data" in patch:
         _check_data(patch["data"])
+    if "layout_settings" in patch:
+        patch["layout_settings"] = _check_layout(patch["layout_settings"])  # 校验+规范（含夹取）
     return get_repo().update(rid, patch, req.version, req.note)  # RepoNotFound→404 / RepoConflict→409
 
 

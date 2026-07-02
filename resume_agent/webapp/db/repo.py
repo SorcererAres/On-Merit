@@ -33,7 +33,9 @@ class ResumeRepo(Protocol):
     def list(self) -> List[Dict[str, Any]]: ...            # 仅元数据（不含 data）
     def get(self, rid: str) -> Dict[str, Any]: ...          # 完整；NotFound
     def create(self, title: str, role: str, jd: str = "",
-               data: Optional[Dict[str, Any]] = None, export_md: Optional[str] = None) -> Dict[str, Any]: ...
+               data: Optional[Dict[str, Any]] = None, export_md: Optional[str] = None,
+               source_text: Optional[str] = None,
+               layout_settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]: ...
     def update(self, rid: str, patch: Dict[str, Any], expected_version: int,
                note: str = "修改前") -> Dict[str, Any]: ...  # NotFound / Conflict
     def delete(self, rid: str) -> None: ...                 # NotFound

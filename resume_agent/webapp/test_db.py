@@ -171,6 +171,63 @@ def test_rollback_cross_resume_and_conflict():
     print("OK: rollback 跨简历 NotFound + 过期 version Conflict")
 
 
+def test_source_and_layout_roundtrip():
+    r = _repo()
+    ls = {"templateId": "modern", "fontScale": 1.1, "lineHeight": 1.6, "themeColor": "teal"}
+    rec = r.create("t", "designer", data={"basics": {}}, source_text="原始简历文本", layout_settings=ls)
+    got = r.get(rec["id"])
+    assert got["source_text"] == "原始简历文本" and got["layout_settings"] == ls  # JSON 往返
+    # 纯样式更新：version+1 但不触发快照
+    up = r.update(rec["id"], {"layout_settings": {"templateId": "ats", "fontScale": 0.9, "lineHeight": 1.4, "themeColor": "#123456"}}, expected_version=1)
+    assert up["layout_settings"]["templateId"] == "ats" and up["version"] == 2
+    assert len(r.list_revisions(rec["id"])) == 0
+    print("OK: source_text/layout_settings 往返 + 纯样式变不快照")
+
+
+def test_content_change_keeps_source_layout_and_rollback():
+    r = _repo()
+    ls = {"templateId": "minimal", "fontScale": 1.0, "lineHeight": 1.5, "themeColor": "ink"}
+    rec = r.create("t", "engineer", data={"basics": {"n": "v1"}}, source_text="src1", layout_settings=ls)
+    up = r.update(rec["id"], {"data": {"basics": {"n": "v2"}}}, expected_version=1)  # data 变→快照
+    assert up["source_text"] == "src1" and up["layout_settings"] == ls  # 内容变不动样式/原文
+    rev = r.list_revisions(rec["id"])[0]["id"]
+    back = r.rollback(rec["id"], rev, expected_version=up["version"])
+    assert back["data"]["basics"]["n"] == "v1" and back["source_text"] == "src1" and back["layout_settings"] == ls
+    print("OK: 内容变不动样式/原文；回滚全量恢复含样式/原文")
+
+
+def test_duplicate_copies_source_layout():
+    r = _repo()
+    ls = {"templateId": "classic", "fontScale": 1.0, "lineHeight": 1.5, "themeColor": "rose"}
+    rec = r.create("原", "designer", data={"basics": {}}, source_text="src", layout_settings=ls)
+    dup = r.duplicate(rec["id"])
+    assert dup["source_text"] == "src" and dup["layout_settings"] == ls
+    print("OK: duplicate 复制 source_text/layout_settings")
+
+
+def test_migration_adds_columns():
+    import sqlite3
+    d = tempfile.mkdtemp(); p = str(Path(d) / "old.db")
+    conn = sqlite3.connect(p)
+    conn.executescript("""
+      CREATE TABLE resumes(id TEXT PRIMARY KEY,user_id TEXT,title TEXT NOT NULL,role TEXT NOT NULL,
+        jd TEXT NOT NULL DEFAULT '',data TEXT NOT NULL,export_md TEXT,version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+      CREATE TABLE revisions(id TEXT PRIMARY KEY,resume_id TEXT NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
+        data TEXT NOT NULL,export_md TEXT,title TEXT NOT NULL,role TEXT NOT NULL,jd TEXT NOT NULL,
+        note TEXT NOT NULL,created_at TEXT NOT NULL);
+      CREATE TABLE schema_version(v INTEGER NOT NULL); INSERT INTO schema_version VALUES(1);
+      INSERT INTO resumes VALUES('x',NULL,'老简历','engineer','','{"basics":{}}',NULL,1,'t','t');
+    """)
+    conn.close()
+    r = SqliteRepo(p)  # 触发幂等迁移补列
+    got = r.get("x")   # 老行仍可读，新列为 None
+    assert got["title"] == "老简历" and got["source_text"] is None and got["layout_settings"] is None
+    up = r.update("x", {"source_text": "新原文"}, expected_version=1)  # 迁移后可写新列
+    assert up["source_text"] == "新原文"
+    print("OK: 迁移补列（老库可读 + 可写新列）")
+
+
 if __name__ == "__main__":
     test_crud_roundtrip()
     test_get_missing_404()
@@ -183,4 +240,8 @@ if __name__ == "__main__":
     test_rollback()
     test_rollback_also_trims()
     test_rollback_cross_resume_and_conflict()
+    test_source_and_layout_roundtrip()
+    test_content_change_keeps_source_layout_and_rollback()
+    test_duplicate_copies_source_layout()
+    test_migration_adds_columns()
     print("\nALL PASS")
