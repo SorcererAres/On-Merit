@@ -18,12 +18,14 @@ import { toast } from "sonner";
 type Tab = "diagnose" | "improve";
 interface GenResult { changes: Change[]; notes: string[]; supplements: string[] }
 
-export function AIPanel() {
+export function AIPanel({ only }: { only?: Tab }) {
   const {
     resume, jd, role, diagnosis, improve, afterScore,
     setJD, setRole, setDiagnosis, setImprove, applyResume, setAfterScore,
   } = useStore();
-  const [tab, setTab] = useState<Tab>("diagnose");
+  const [tabState, setTabState] = useState<Tab>("diagnose");
+  const tab = only ?? tabState;
+  const setTab = setTabState;
   const [roles, setRoles] = useState<Role[]>([]);
   const [accepted, setAccepted] = useState<Record<number, boolean>>({});
   useEffect(() => { getJSON<{ roles: Role[] }>("/api/roles").then((d) => setRoles(d.roles)).catch(() => {}); }, []);
@@ -113,10 +115,12 @@ export function AIPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 border-b border-border">
-        <button className={tabCls("diagnose")} onClick={() => setTab("diagnose")}>诊断</button>
-        <button className={tabCls("improve")} onClick={() => setTab("improve")}>改写</button>
-      </div>
+      {!only && (
+        <div className="flex shrink-0 border-b border-border">
+          <button className={tabCls("diagnose")} onClick={() => setTab("diagnose")}>诊断</button>
+          <button className={tabCls("improve")} onClick={() => setTab("improve")}>改写</button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {tab === "diagnose" && (
