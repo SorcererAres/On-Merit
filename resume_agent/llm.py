@@ -61,7 +61,7 @@ def _strip_fence(text: str) -> str:
     return (m.group(1) if m else s).strip()
 
 
-def _ollama_chat_fn(model: str) -> ChatFn:
+def _ollama_chat_fn(model: str, json_mode: bool = False) -> ChatFn:
     def chat_fn(messages: List[Dict[str, str]]) -> str:
         _ensure_localhost_no_proxy()  # 调 Ollama 前才设 NO_PROXY（避免 import 期全局副作用）
         import ollama  # 懒加载：仅在真正调用时才需要 ollama 包
@@ -70,6 +70,8 @@ def _ollama_chat_fn(model: str) -> ChatFn:
                 model=model,
                 messages=messages,
                 options={"temperature": 0.3, "top_p": 0.9, "num_ctx": 32768},
+                # json_mode 时强制合法 JSON 输出（省掉围栏/截断类重试）；形状仍靠 ensure_valid 校验
+                format="json" if json_mode else "",
             )
         except Exception as e:  # 连接失败/被代理拦截/模型不存在 -> 干净短提示
             msg = " ".join(str(e).split())[:180]
@@ -88,7 +90,7 @@ def _ollama_chat_fn(model: str) -> ChatFn:
     return chat_fn
 
 
-def _gemini_chat_fn(model: str, api_key: str) -> ChatFn:
+def _gemini_chat_fn(model: str, api_key: str, json_mode: bool = False) -> ChatFn:
     def chat_fn(messages: List[Dict[str, str]]) -> str:
         import google.generativeai as genai  # 懒加载
         genai.configure(api_key=api_key)
@@ -99,10 +101,13 @@ def _gemini_chat_fn(model: str, api_key: str) -> ChatFn:
              "parts": [m.get("content", "")]}
             for m in messages if m.get("role") in ("user", "assistant")
         ]
+        gen_cfg = {"temperature": 0.3, "top_p": 0.9}
+        if json_mode:  # 强制合法 JSON 输出
+            gen_cfg["response_mime_type"] = "application/json"
         gm = genai.GenerativeModel(
             model_name=model,
             system_instruction=system or None,
-            generation_config={"temperature": 0.3, "top_p": 0.9},
+            generation_config=gen_cfg,
         )
         resp = gm.generate_content(contents)
         # 安全拦截 / 空 candidates -> 明确报错（不把简历正文写进异常）
@@ -120,11 +125,13 @@ def _gemini_chat_fn(model: str, api_key: str) -> ChatFn:
     return chat_fn
 
 
-def _openai_chat_fn(model: str, base_url: str, api_key: str) -> ChatFn:
+def _openai_chat_fn(model: str, base_url: str, api_key: str, json_mode: bool = False) -> ChatFn:
     """OpenAI 兼容 Chat Completions（DeepSeek/通义/GLM/OpenAI/Kimi 等）。
 
     用 httpx（免加新依赖）POST {base_url}/chat/completions，Bearer 鉴权，messages 原样传。
     外网 API 走系统代理（trust_env 默认）。错误清晰映射为 LLMConfigError。
+    json_mode=True 时加 response_format={"type":"json_object"}（qwen-plus/deepseek/GLM 均支持；
+    要求 prompt 内出现 "json" 字样——ingest prompt 已满足）；形状仍靠上层 ensure_valid 校验。
     """
     url = base_url.rstrip("/") + "/chat/completions"
 
@@ -140,12 +147,15 @@ def _openai_chat_fn(model: str, base_url: str, api_key: str) -> ChatFn:
     def chat_fn(messages: List[Dict[str, str]]) -> str:
         import httpx  # 懒加载（fastapi/ollama 已带 httpx）
         last = ""
+        body: Dict = {"model": model, "messages": messages, "temperature": 0.2, "stream": False}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
         for attempt in range(3):  # 429/超时/5xx 瞬时错误 -> 指数退避重试
             try:
                 resp = httpx.post(
                     url,
                     headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": messages, "temperature": 0.2, "stream": False},
+                    json=body,
                     timeout=httpx.Timeout(120.0, connect=10.0),
                     trust_env=True,  # 外网 API 走系统代理；NO_PROXY 只作用于 localhost
                 )
@@ -262,12 +272,17 @@ def make_vision_ocr_fn(
     return ocr_fn
 
 
-def make_chat_fn(model_name: str | None = None, provider: str | None = None) -> ChatFn:
+def make_chat_fn(
+    model_name: str | None = None, provider: str | None = None, json_mode: bool = False
+) -> ChatFn:
     """构造 chat_fn。配置错误立即抛 LLMConfigError，不静默回退。
 
     - provider 缺省读 LLM_PROVIDER（默认 ollama）；未知值/空白 -> 报错。
     - 显式选 gemini 但缺 GEMINI_API_KEY -> 报错（不偷偷切 Ollama）。
     - model_name 显式给则原样透传；否则按 provider 取各自默认模型。
+    - json_mode=True：让模型侧保证输出合法 JSON（四家 provider 各自的原生开关），
+      用于 ingest 等纯结构化抽取，减少「非 JSON / 围栏 / 截断」类整轮重试；
+      不保证符合 JSON Resume 形状，形状仍由上层 ensure_valid 校验。
     """
     prov = (provider or os.getenv("LLM_PROVIDER") or "ollama").strip().lower() or "ollama"  # 空值也回退 ollama
     if prov not in _VALID_PROVIDERS:
@@ -277,14 +292,14 @@ def make_chat_fn(model_name: str | None = None, provider: str | None = None) -> 
         key = (os.getenv("GEMINI_API_KEY") or "").strip()
         if not key:
             raise LLMConfigError("选择 gemini 但 GEMINI_API_KEY 缺失或为空白")
-        return _gemini_chat_fn(model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL), key)
+        return _gemini_chat_fn(model_name or os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL), key, json_mode)
 
     if prov == "deepseek":
         key = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
         if not key:
             raise LLMConfigError("选择 deepseek 但 DEEPSEEK_API_KEY 缺失或为空白")
         return _openai_chat_fn(
-            model_name or os.getenv("DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_MODEL), DEEPSEEK_BASE_URL, key)
+            model_name or os.getenv("DEEPSEEK_MODEL", DEFAULT_DEEPSEEK_MODEL), DEEPSEEK_BASE_URL, key, json_mode)
 
     if prov == "openai":
         key = (os.getenv("OPENAI_API_KEY") or "").strip()
@@ -293,6 +308,6 @@ def make_chat_fn(model_name: str | None = None, provider: str | None = None) -> 
             raise LLMConfigError("选择 openai 但 OPENAI_API_KEY 缺失或为空白")
         if not base:
             raise LLMConfigError("选择 openai 但 OPENAI_BASE_URL 缺失（如 https://api.openai.com/v1）")
-        return _openai_chat_fn(model_name or os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL), base, key)
+        return _openai_chat_fn(model_name or os.getenv("OPENAI_MODEL", DEFAULT_OPENAI_MODEL), base, key, json_mode)
 
-    return _ollama_chat_fn(model_name or os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL))
+    return _ollama_chat_fn(model_name or os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL), json_mode)

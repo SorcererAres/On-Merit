@@ -91,6 +91,26 @@ def test_string_field_checks():
     print("OK: url / network 字符串校验")
 
 
+def test_length_str_too_long():
+    """借鉴 self.so：单字段塞巨量文本被拦（防注入/撑爆上下文）。"""
+    errs = validate.validate_resume({"basics": {"summary": "x" * (validate.MAX_STR_LEN + 1)}})
+    assert any("文本过长" in e for e in errs)
+    print("OK: 超长字符串被拦")
+
+
+def test_length_array_too_long():
+    """海量条目被拦。"""
+    errs = validate.validate_resume({"work": [{"name": "A"} for _ in range(validate.MAX_ARRAY_LEN + 1)]})
+    assert any("列表过长" in e for e in errs)
+    print("OK: 超长数组被拦")
+
+
+def test_length_normal_ok():
+    """正常体量简历不误伤。"""
+    assert validate.validate_resume(RESUME) == []
+    print("OK: 正常简历不被体量闸误伤")
+
+
 if __name__ == "__main__":
     test_sample_is_valid()
     test_root_not_object()
@@ -103,4 +123,7 @@ if __name__ == "__main__":
     test_render_entry_rejects_malformed()
     test_validator_no_crash_on_nonlist_section()
     test_string_field_checks()
+    test_length_str_too_long()
+    test_length_array_too_long()
+    test_length_normal_ok()
     print("\nALL PASS")

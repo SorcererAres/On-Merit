@@ -35,6 +35,40 @@ def _is_str_list(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) for x in v)
 
 
+# --- 体量上限（防注入 / 防撑爆上下文；借鉴 self.so resume.ts 的 Zod max）---
+# 正常简历远达不到这些阈值；此闸只拦异常输入（海量条目、单字段塞巨量文本、
+# 借超长内容做 prompt 注入 / 撑爆下游上下文）。故意设得宽松，宁可放过大简历也不误伤。
+MAX_STR_LEN = 20_000       # 单个字符串字段字符上限
+MAX_ARRAY_LEN = 200        # 单个数组元素个数上限
+MAX_TOTAL_CHARS = 400_000  # 整份简历所有字符串字符总量上限（ingest 抽取上限的 2 倍）
+
+
+def _length_errors(resume: Any) -> List[str]:
+    """递归核查体量：单字符串过长、单数组过长、字符总量过大。返回错误清单。"""
+    errors: List[str] = []
+    total = 0
+
+    def walk(node: Any, path: str) -> None:
+        nonlocal total
+        if isinstance(node, str):
+            total += len(node)
+            if len(node) > MAX_STR_LEN:
+                errors.append(f"{path or '根'} 文本过长（{len(node)} 字符 > {MAX_STR_LEN}），疑似异常输入")
+        elif isinstance(node, list):
+            if len(node) > MAX_ARRAY_LEN:
+                errors.append(f"{path or '根'} 列表过长（{len(node)} 项 > {MAX_ARRAY_LEN}），疑似异常输入")
+            for i, x in enumerate(node[: MAX_ARRAY_LEN + 1]):  # 超限后无需全量遍历
+                walk(x, f"{path}[{i}]")
+        elif isinstance(node, dict):
+            for k, v in node.items():
+                walk(v, f"{path}.{k}" if path else str(k))
+
+    walk(resume, "")
+    if total > MAX_TOTAL_CHARS:
+        errors.append(f"简历文本总量过大（{total} 字符 > {MAX_TOTAL_CHARS}），疑似异常输入")
+    return errors
+
+
 def validate_resume(resume: Any) -> List[str]:
     """返回结构错误清单（空 = 合法）。错误信息可读、带路径。"""
     errors: List[str] = []
@@ -100,6 +134,7 @@ def validate_resume(resume: Any) -> List[str]:
             if v is not None and not isinstance(v, str):
                 errors.append(f"{sec}[{i}].{field} 必须是字符串")
 
+    errors.extend(_length_errors(resume))
     return errors
 
 

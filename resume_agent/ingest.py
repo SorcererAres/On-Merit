@@ -312,7 +312,8 @@ def main() -> None:
 
     from llm import make_chat_fn
 
-    resume, warns = ingest(args.pdf, make_chat_fn(args.model))
+    # ingest 是纯结构化抽取：开 json_mode 让模型侧保证合法 JSON，减少解析类重试
+    resume, warns = ingest(args.pdf, make_chat_fn(args.model, json_mode=True))
 
     # 原子写：先写临时文件再 rename，避免中断留半个 JSON
     out = Path(args.out)
