@@ -20,19 +20,21 @@ export function useAutoSave(id: string) {
     if (s.editSeq <= s.savedSeq || !s.resume || s.resumeId !== id) return;
     const seq = s.editSeq;                 // savePoint（title/dirty）
     const exportMdSeqAtSave = s.exportMdSeq; // exportMd 专属 savePoint
+    const layoutSeqAtSave = s.layoutSeq;   // layout 专属 savePoint
     const loadSeq = s.loadSeq;             // 语境戳：重载后丢弃本次结果
     savingRef.current = true; setSaving(true);
     try {
       const r = await putJSON<ResumeRecord>(`/api/resumes/${id}`, {
         version: s.version,
-        fields: ["data", "jd", "role", "title", "export_md", "source_text"],
+        fields: ["data", "jd", "role", "title", "export_md", "source_text", "layout_settings"],
         data: s.resume, jd: s.jd, role: s.role, title: s.title,
-        export_md: s.exportMd, source_text: s.sourceText,
+        export_md: s.exportMd, source_text: s.sourceText, layout_settings: s.layoutSettings,
         note: "自动保存",
       });
       const cur = useStore.getState();
       if (cur.resumeId === id && cur.loadSeq === loadSeq) {
-        cur.markSaved(seq, r.version, r.title, r.export_md ?? null, exportMdSeqAtSave);
+        cur.markSaved({ seq, version: r.version, title: r.title, exportMd: r.export_md ?? null,
+          exportMdSeqAtSave, layoutSettings: r.layout_settings ?? null, layoutSeqAtSave });
       }
       // 语境已换（重载/切简历）：丢弃结果，不 markSaved
     } catch (e) {

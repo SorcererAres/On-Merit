@@ -10,8 +10,8 @@ import { useStore } from "@/store/useStore";
 import type { ResumeRecord } from "@/store/useStore";
 import { DiagnoseView } from "@/components/editor/DiagnoseView";
 import { OptimizeView } from "@/components/editor/OptimizeView";
+import { ExportView } from "@/components/editor/ExportView";
 import { ImportDialog } from "@/components/editor/ImportDialog";
-import { StepExport } from "@/steps/StepExport";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
@@ -164,11 +164,7 @@ export function EditorPage() {
       {/* 步骤内容 */}
       {step === "diagnose" && <DiagnoseView />}
       {step === "optimize" && <OptimizeView />}
-      {step === "export" && (
-        <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-6xl px-5 py-6"><StepExport /></div>
-        </div>
-      )}
+      {step === "export" && <ExportView key={hydrationKey} />}
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
