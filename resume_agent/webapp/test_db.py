@@ -136,6 +136,20 @@ def test_rollback():
     print("OK: rollback 全量恢复 + 回滚前快照 + version+1")
 
 
+def test_rollback_also_trims():
+    """反复回滚也裁剪 revisions，不无限增长。"""
+    r = _repo()
+    rec = r.create("t", "engineer", data={"basics": {"n": 0}})
+    v = 1
+    for i in range(1, MAX_REVISIONS + 2):
+        r.update(rec["id"], {"data": {"basics": {"n": i}}}, expected_version=v); v += 1
+    rev = r.list_revisions(rec["id"])[0]["id"]
+    for _ in range(5):  # 反复回滚（每次也快照「回滚前」）
+        out = r.rollback(rec["id"], rev, expected_version=v); v = out["version"]
+    assert len(r.list_revisions(rec["id"])) == MAX_REVISIONS
+    print(f"OK: 反复回滚仍裁剪到 {MAX_REVISIONS}")
+
+
 def test_rollback_cross_resume_and_conflict():
     r = _repo()
     a = r.create("a", "engineer", data={"basics": {"n": "a"}})
@@ -167,5 +181,6 @@ if __name__ == "__main__":
     test_duplicate()
     test_delete_cascade()
     test_rollback()
+    test_rollback_also_trims()
     test_rollback_cross_resume_and_conflict()
     print("\nALL PASS")

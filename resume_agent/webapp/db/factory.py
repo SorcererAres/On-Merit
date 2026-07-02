@@ -14,18 +14,15 @@ def get_repo():
         return _repo
     backend = (os.getenv("DB_BACKEND") or "sqlite").strip().lower()
     if backend == "postgres":
-        from .pg_repo import PgRepo  # P4：需 psycopg + DATABASE_URL
-        _repo = PgRepo(os.environ.get("DATABASE_URL", ""))
-    else:
-        # 默认 sqlite：路径相对 db 模块（= resume_agent/webapp/data/resumes.db），不依赖启动 cwd
-        default = Path(__file__).resolve().parent.parent / "data" / "resumes.db"
-        _repo = SqliteRepoLazy(os.getenv("RESUME_DB") or str(default))
-    return _repo
-
-
-def SqliteRepoLazy(path):
+        # P4 计划：Postgres 适配未实现。明确失败，绝不静默改写别的库。
+        raise RuntimeError("DB_BACKEND=postgres 尚未实现（P4 计划）；当前请用 DB_BACKEND=sqlite")
+    if backend != "sqlite":
+        raise RuntimeError(f"未知 DB_BACKEND：{backend!r}，可选 sqlite（postgres 为 P4 计划）")
+    # 默认 sqlite：路径相对 db 模块（= resume_agent/webapp/data/resumes.db），不依赖启动 cwd
     from .sqlite_repo import SqliteRepo
-    return SqliteRepo(path)
+    default = Path(__file__).resolve().parent.parent / "data" / "resumes.db"
+    _repo = SqliteRepo(os.getenv("RESUME_DB") or str(default))
+    return _repo
 
 
 def reset_repo_for_test():

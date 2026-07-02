@@ -432,20 +432,29 @@ def api_resumes_get(rid: str):
     return get_repo().get(rid)                       # RepoNotFound → 404
 
 
+_UPDATABLE_FIELDS = ("title", "role", "jd", "data", "export_md")
+_NULLABLE_FIELDS = {"export_md"}  # 其余列 NOT NULL：声明进 fields 却给 null → 400，不落到 DB 炸 500
+
+
 @app.put("/api/resumes/{rid}")
 def api_resumes_update(rid: str, req: ResumeUpdateReq):
     patch: Dict[str, Any] = {}
-
-    def want(name: str, val: Any):
-        # 有 fields：精确按声明改（允许显式设 None，如清空 export_md）；无 fields：只改非 None 值
-        if req.fields is not None:
-            if name in req.fields:
-                patch[name] = val
-        elif val is not None:
+    if req.fields is not None:
+        unknown = set(req.fields) - set(_UPDATABLE_FIELDS)
+        if unknown:
+            raise ApiError("BAD_FIELDS", f"未知字段：{sorted(unknown)}，可选 {_UPDATABLE_FIELDS}")
+        for name in _UPDATABLE_FIELDS:
+            if name not in req.fields:
+                continue
+            val = getattr(req, name)
+            if val is None and name not in _NULLABLE_FIELDS:
+                raise ApiError("BAD_FIELDS", f"字段 {name} 不允许为 null（若不想修改请不要放进 fields）")
             patch[name] = val
-
-    want("title", req.title); want("role", req.role); want("jd", req.jd)
-    want("data", req.data); want("export_md", req.export_md)
+    else:  # 无 fields：只改非 None 值（兼容旧调用方）
+        for name in _UPDATABLE_FIELDS:
+            val = getattr(req, name)
+            if val is not None:
+                patch[name] = val
     if "role" in patch:
         _check_role(patch["role"])
     if "data" in patch:

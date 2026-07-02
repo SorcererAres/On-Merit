@@ -8,8 +8,6 @@ import { Alert } from "@/components/ui/misc";
 import type { Resume } from "@/types";
 import { Plus, X } from "lucide-react";
 
-const DEBOUNCE = 300;
-
 function Section({ title, defaultOpen = true, children }: {
   title: string; defaultOpen?: boolean; children: React.ReactNode;
 }) {
@@ -24,15 +22,13 @@ function Section({ title, defaultOpen = true, children }: {
 export function SectionEditor() {
   const { resume, warnings, usedOcr, editResume } = useStore();
   const [d, setD] = useState<Resume>(() => structuredClone(resume ?? {}));
-  const timer = useRef<number | null>(null);
   const first = useRef(true);
 
-  // 本地草稿变更 → 防抖推入 store（首个挂载周期不推，避免载入即置 dirty）
+  // 每次编辑同步推入 store（简历对象很小，clone 廉价；LivePreview/autosave 各有自己的防抖）。
+  // 好处：dirty 即时置位（导航守卫无 300ms 盲窗）、无卸载 flush、无旧草稿覆盖新文档的窗口。
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => editResume(structuredClone(d)), DEBOUNCE);
-    return () => { if (timer.current) window.clearTimeout(timer.current); };
+    if (first.current) { first.current = false; return; }  // 挂载不推，避免载入即置 dirty
+    editResume(structuredClone(d));
   }, [d]);
 
   const bump = () => setD({ ...d });

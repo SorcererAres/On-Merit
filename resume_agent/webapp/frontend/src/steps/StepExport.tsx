@@ -11,14 +11,19 @@ import { Printer, RotateCcw } from "lucide-react";
 type Lang = "zh" | "en";
 
 export function StepExport() {
-  const { resume } = useStore();
+  const { resume, exportMd, setExportMd } = useStore();
   const [lang, setLang] = useState<Lang>("zh");
-  const [md, setMd] = useState<string>(() => (resume ? resumeToMarkdown(resume, "zh") : ""));
+  // 初值：有已保存的排版 Markdown 用它，否则从简历派生（exportMd=null 表示派生态）
+  const [md, setMd] = useState<string>(() =>
+    exportMd ?? (resume ? resumeToMarkdown(resume, "zh") : ""));
   const [doc, setDoc] = useState<string>("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const name = useMemo(() => (resume?.basics?.name as string) || "简历", [resume]);
+
+  // 用户编辑 → 写入 store.exportMd（随自动保存持久化；data 变更时服务端会置空回派生）
+  const edit = (text: string) => { setMd(text); setExportMd(text); };
 
   // 编辑 markdown -> 防抖生成纸张文档（marked 很快，防抖仅为避免逐键重置 iframe 抖动）
   useEffect(() => {
@@ -43,7 +48,12 @@ export function StepExport() {
     return () => ro.disconnect();
   }, []);
 
-  const regenerate = () => { if (resume) setMd(resumeToMarkdown(resume, lang)); };
+  // 重生成：回派生态（exportMd 置 null 持久化，避免旧手工排版残留）
+  const regenerate = () => {
+    if (!resume) return;
+    setMd(resumeToMarkdown(resume, lang));
+    setExportMd(null);
+  };
 
   const print = () => {
     const win = iframeRef.current?.contentWindow;
@@ -81,7 +91,7 @@ export function StepExport() {
         <div className="flex min-h-0 flex-col lg:w-[42%] lg:border-r lg:border-border">
           <div className={toolbar}>Markdown</div>
           <textarea
-            value={md} onChange={(e) => setMd(e.target.value)} spellCheck={false}
+            value={md} onChange={(e) => edit(e.target.value)} spellCheck={false}
             aria-label="简历 Markdown 源"
             className="min-h-0 flex-1 resize-none bg-background p-4 font-mono text-[13px] leading-relaxed text-foreground outline-none"
           />

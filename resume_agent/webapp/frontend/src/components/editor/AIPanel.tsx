@@ -30,11 +30,26 @@ export function AIPanel() {
 
   const hasJD = jd.trim().length > 0;
 
+  // 语境戳：异步结果只在「同一简历、未重载、期间无编辑」时写回，过期一律丢弃并提示。
+  // loadSeq 防「同 id 重载/回滚后 editSeq 重置为相同值」的误判。
+  const stamp = () => {
+    const s = useStore.getState();
+    return { id: s.resumeId, load: s.loadSeq, seq: s.editSeq };
+  };
+  const fresh = (st: { id: string | null; load: number; seq: number }) => {
+    const s = useStore.getState();
+    return s.resumeId === st.id && s.loadSeq === st.load && s.editSeq === st.seq;
+  };
+
   // —— 岗位自动检测（有 JD 以 JD 为准）——
   const detect = useTask((signal) =>
     postJSON<{ role: string; label: string }>("/api/detect-role",
       jd.trim() ? { jd } : { resume: resume ?? undefined, jd: "" }, signal));
-  const runDetect = async () => { const r = await detect.run(); if (r) setRole(r.role); };
+  const runDetect = async () => {
+    const st = stamp();
+    const r = await detect.run();
+    if (r && fresh(st)) setRole(r.role);   // 期间用户改过岗位/内容或重载 → 不覆盖
+  };
 
   // —— 诊断：评分 +（有 JD）覆盖度 ——
   const analyze = useTask(async (signal) => {
@@ -42,7 +57,13 @@ export function AIPanel() {
     const match = jd.trim() ? await postJSON<MatchReport>("/api/match", { resume, jd }, signal) : null;
     return { evalResult, match };
   });
-  const runAnalyze = async () => { const r = await analyze.run(); if (r) setDiagnosis(r); };
+  const runAnalyze = async () => {
+    const st = stamp();
+    const r = await analyze.run();
+    if (!r) return;
+    if (fresh(st)) setDiagnosis(r);
+    else toast.message("诊断期间简历有变更，结果已失效，请重新诊断");
+  };
 
   // —— 改写：有 JD 走 JD 强化 / 无 JD 走 rubric 自动改 ——
   const gen = useTask(async (signal): Promise<GenResult> => {
@@ -56,8 +77,11 @@ export function AIPanel() {
     return { changes: r.changes, notes: r.notes, supplements: r.gaps };
   });
   const runGen = async () => {
+    const st = stamp();
     const r = await gen.run();
-    if (r) { setImprove(r.changes, r.notes, r.supplements); setAccepted({}); }  // 默认不勾，逐条确认
+    if (!r) return;
+    if (fresh(st)) { setImprove(r.changes, r.notes, r.supplements); setAccepted({}); }  // 默认不勾
+    else toast.message("生成期间简历有变更，建议已失效，请重新生成");
   };
 
   const apply = useTask(async (signal, patches: Patch[]) => {
@@ -72,16 +96,17 @@ export function AIPanel() {
     const patches: Patch[] = changes.filter((_, i) => accepted[i])
       .map((c) => ({ op: "replace", path: c.path, old: c.old, value: c.new }));
     if (!patches.length) return toast.error("请先勾选要采纳的改动");
+    const st = stamp();
+    const before = useStore.getState().diagnosis?.evalResult.score ?? null;  // 采纳前基线
     const r = await apply.run(patches);
     if (!r) return;
+    if (!fresh(st)) return toast.message("采纳期间简历有变更，本次结果已丢弃，请重新生成建议");
     if (!r.applied.committed) return toast.error("改动会让简历结构不合法，已回退");
     applyResume(r.applied.resume);
-    if (r.after) setAfterScore(r.after.score, r.after.max);
+    if (r.after) setAfterScore(before, r.after.score, r.after.max);
     const n = r.applied.results.filter((x) => x.status === "applied").length;
     toast.success(`已采纳 ${n} 条（已自动保存）`);
   };
-
-  const before = diagnosis?.evalResult.score;
   const tabCls = (t: Tab) => cn(
     "flex-1 border-b-2 px-3 py-2 text-button-14 transition",
     tab === t ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground");
@@ -191,7 +216,7 @@ export function AIPanel() {
               <div className="mt-4 rounded-lg border border-border bg-card p-3">
                 <div className="text-label-13 text-muted-foreground mb-1">采纳后复评</div>
                 <div className="flex items-center gap-3">
-                  <span className="text-heading-24 text-muted-foreground">{before ?? "—"}</span>
+                  <span className="text-heading-24 text-muted-foreground">{afterScore.before ?? "—"}</span>
                   <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   <span className="text-heading-24 text-primary">{afterScore.score}</span>
                   <span className="text-copy-13 text-muted-foreground">/ {afterScore.max}</span>

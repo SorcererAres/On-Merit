@@ -26,15 +26,28 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (!file && !text.trim()) return;
     const hasContent = (resume?.work?.length || resume?.basics?.name);
     if (hasContent && !window.confirm("导入会覆盖当前简历内容（自动保存前会先快照旧版，可回滚）。继续？")) return;
+    // 语境戳（id+loadSeq+editSeq）：切换/重载丢弃在途结果；同简历期间有编辑则再确认覆盖
+    const s0 = useStore.getState();
+    const start = { id: s0.resumeId, load: s0.loadSeq, seq: s0.editSeq };
     const r = await ingest.run();
     if (!r) return;
+    const s1 = useStore.getState();
+    if (s1.resumeId !== start.id || s1.loadSeq !== start.load) return;  // 语境已换，不写
+    if (s1.editSeq !== start.seq
+        && !window.confirm("解析期间你改动了当前简历，导入会覆盖这些改动。继续？")) return;
     setImported(r.resume, r.warnings, r.usedOcr);
     toast.success(r.usedOcr ? "已识别（OCR），请重点核对" : "已导入");
     onClose();
-    // 岗位检测异步回填（字段级 set，只动 role）
+    // 岗位检测异步回填：绑定「导入完成后」的完整戳——期间用户改过任何东西（含手动选岗位）都不回填
+    const s2 = useStore.getState();
+    const after = { id: s2.resumeId, load: s2.loadSeq, seq: s2.editSeq };
     postJSON<{ role: string }>("/api/detect-role",
       jd.trim() ? { jd } : { resume: r.resume, jd: "" })
-      .then((d) => setRole(d.role)).catch(() => {});
+      .then((d) => {
+        const s3 = useStore.getState();
+        if (s3.resumeId === after.id && s3.loadSeq === after.load && s3.editSeq === after.seq) setRole(d.role);
+      })
+      .catch(() => {});
   };
 
   if (!open) return null;
