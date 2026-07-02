@@ -8,10 +8,8 @@ import { getJSON, postJSON } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
 import { useStore } from "@/store/useStore";
 import type { ResumeRecord } from "@/store/useStore";
-import { SectionEditor } from "@/components/editor/SectionEditor";
-import { LivePreview } from "@/components/editor/LivePreview";
-import { AIPanel } from "@/components/editor/AIPanel";
 import { DiagnoseView } from "@/components/editor/DiagnoseView";
+import { OptimizeView } from "@/components/editor/OptimizeView";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { StepExport } from "@/steps/StepExport";
 import { Button } from "@/components/ui/button";
@@ -22,7 +20,6 @@ import { toast } from "sonner";
 import { ArrowLeft, Check, FileUp, History, Save, X } from "lucide-react";
 
 type Step = "diagnose" | "optimize" | "export";
-type MobileTab = "edit" | "preview" | "ai";
 interface RevisionMeta { id: string; note: string; created_at: string }
 
 const STEPS: { key: Step; label: string; hint: string }[] = [
@@ -47,7 +44,6 @@ export function EditorPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const [revisions, setRevisions] = useState<RevisionMeta[] | null>(null);
-  const [mtab, setMtab] = useState<MobileTab>("edit");
 
   useEffect(() => {
     let alive = true;
@@ -117,30 +113,6 @@ export function EditorPage() {
   if (resumeId !== id) return <div className="px-6 py-8 text-copy-14 text-muted-foreground">加载中…</div>;
 
   const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已保存";
-  const mtabCls = (t: MobileTab) => cn("flex-1 rounded-md px-3 py-1.5 text-button-14",
-    mtab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground");
-
-  // 诊断/优化：三栏（AIPanel 锁定对应 tab）；导出：StepExport
-  const ThreeCol = ({ aiOnly }: { aiOnly: "diagnose" | "improve" }) => (
-    <>
-      <div className="flex shrink-0 gap-1 border-b border-border p-2 lg:hidden">
-        <button className={mtabCls("edit")} onClick={() => setMtab("edit")}>编辑</button>
-        <button className={mtabCls("preview")} onClick={() => setMtab("preview")}>预览</button>
-        <button className={mtabCls("ai")} onClick={() => setMtab("ai")}>{aiOnly === "diagnose" ? "诊断" : "改写"}</button>
-      </div>
-      <div className="flex min-h-0 flex-1">
-        <div key={hydrationKey} className={cn("min-h-0 overflow-y-auto border-r border-border",
-          "w-full lg:w-[380px] lg:shrink-0", mtab !== "edit" && "hidden lg:block")}>
-          <SectionEditor />
-        </div>
-        <div className={cn("min-h-0 flex-1", mtab !== "preview" && "hidden lg:block")}><LivePreview /></div>
-        <div className={cn("min-h-0 border-l border-border", "w-full lg:w-[400px] lg:shrink-0",
-          mtab !== "ai" && "hidden lg:block")}>
-          <AIPanel only={aiOnly} />
-        </div>
-      </div>
-    </>
-  );
 
   return (
     <div className="flex h-[calc(100vh-65px)] min-h-0 flex-col">
@@ -191,7 +163,7 @@ export function EditorPage() {
 
       {/* 步骤内容 */}
       {step === "diagnose" && <DiagnoseView />}
-      {step === "optimize" && <ThreeCol aiOnly="improve" />}
+      {step === "optimize" && <OptimizeView />}
       {step === "export" && (
         <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-6xl px-5 py-6"><StepExport /></div>
