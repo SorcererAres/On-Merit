@@ -23,6 +23,26 @@ function greeting(): string {
 // 缩略图：虚拟化——持续观察可见性，仅可见（含 300px 预取边距）时挂 iframe，离屏即卸载，
 // 界住并发 iframe 数（不随滚动累积）。渲染结果按 id:version 缓存（编辑后失效），离屏回来直接命中不重拉。
 const _thumbCache = new Map<string, string>();
+const _thumbInflight = new Map<string, Promise<string>>();   // 同 cacheKey 请求去重（防快速进出并发重拉）
+
+// 缓存优先 → in-flight 复用 → 拉取渲染；成功时淘汰同 id 旧版本。任一路径都最终写入 _thumbCache。
+function loadThumb(id: string, cacheKey: string): Promise<string> {
+  const cached = _thumbCache.get(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  let p = _thumbInflight.get(cacheKey);
+  if (!p) {
+    p = getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
+      const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
+      const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
+      for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }  // 淘汰同 id 旧版本
+      _thumbCache.set(cacheKey, d);
+      return d;
+    }).finally(() => { _thumbInflight.delete(cacheKey); });
+    _thumbInflight.set(cacheKey, p);
+  }
+  return p;
+}
+
 function Thumb({ id, version }: { id: string; version: number }) {
   const cacheKey = `${id}:${version}`;
   const boxRef = useRef<HTMLDivElement>(null);
@@ -39,16 +59,11 @@ function Thumb({ id, version }: { id: string; version: number }) {
     return () => io.disconnect();
   }, []);
 
-  // 首次可见且未缓存 → 拉全量数据渲染；缓存后离屏回来命中，不重复请求。
+  // 可见时确保有 doc：先命中缓存（覆盖「上次请求已写缓存但组件已离屏未 setDoc」），否则经去重加载。
   useEffect(() => {
     if (!visible || doc) return;
     let alive = true;
-    getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
-      const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
-      const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
-      for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }  // 淘汰同 id 旧版本
-      _thumbCache.set(cacheKey, d); if (alive) setDoc(d);
-    }).catch(() => { /* 忽略缩略图失败 */ });
+    loadThumb(id, cacheKey).then((d) => { if (alive) setDoc(d); }).catch(() => { /* 忽略缩略图失败 */ });
     return () => { alive = false; };
   }, [visible, doc, cacheKey, id]);
 
