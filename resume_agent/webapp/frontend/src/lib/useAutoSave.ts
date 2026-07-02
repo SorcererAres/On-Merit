@@ -8,13 +8,16 @@ import { useStore } from "@/store/useStore";
 import type { ResumeRecord } from "@/store/useStore";
 
 const DEBOUNCE = 800;
-const RETRY_MS = 4000;                     // 非冲突失败后的退避重试间隔
+const RETRY_MS = 4000;                     // 退避重试基准间隔（指数递增）
+const MAX_RETRIES = 4;                      // 连续失败的自动重试次数上限（有新编辑则重置）
 
 export function useAutoSave(id: string) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
+  const mountedRef = useRef(true);
   const timerRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
+  const retryCountRef = useRef(0);           // 连续失败计数；成功或新编辑归零
   const clearRetry = () => {
     if (retryTimerRef.current) { window.clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
   };
@@ -41,18 +44,25 @@ export function useAutoSave(id: string) {
       if (cur.resumeId === id && cur.loadSeq === loadSeq) {
         cur.markSaved({ seq, version: r.version, title: r.title,
           layoutSettings: r.layout_settings ?? null, layoutSeqAtSave });
-        committed = true;
+        committed = true; retryCountRef.current = 0;   // 成功：重置失败计数
       }
       // 语境已换（重载/切简历）：丢弃结果，不 markSaved，不 trailing
     } catch (e) {
       const cur = useStore.getState();
-      if (cur.resumeId === id && cur.loadSeq === loadSeq && (e as ApiErr)?.code === "VERSION_CONFLICT") {
+      if (!(cur.resumeId === id && cur.loadSeq === loadSeq)) {
+        // 语境已换：与本组件无关，不处理
+      } else if ((e as ApiErr)?.code === "VERSION_CONFLICT") {
         cur.setConflict();
-      } else if (cur.resumeId === id && cur.loadSeq === loadSeq) {
-        // 非冲突失败：延迟退避重试一次（run() 内会再校验 dirty/语境/冲突），
-        // 覆盖「失败期间又编辑、防抖调用被单飞吞掉」的情形，同时避免无退避风暴。
-        clearRetry();
-        retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runRef.current(); }, RETRY_MS);
+      } else {
+        // 仅对「可重试」错误（网络/429/5xx）做指数退避重试，且限次数、组件仍挂载；
+        // 确定性 400（如结构非法）不重试——重试也不会变好，留 dirty 待用户改后再存。
+        const retryable = !(e instanceof ApiErr) || e.retryable;
+        if (mountedRef.current && retryable && retryCountRef.current < MAX_RETRIES) {
+          clearRetry();
+          const delay = RETRY_MS * 2 ** retryCountRef.current;   // 4s → 8s → 16s → 32s
+          retryCountRef.current += 1;
+          retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runRef.current(); }, delay);
+        }
       }
     } finally {
       savingRef.current = false; setSaving(false);
@@ -66,13 +76,18 @@ export function useAutoSave(id: string) {
   const runRef = useRef(run); runRef.current = run;
 
   useEffect(() => {
+    mountedRef.current = true;
     const unsub = useStore.subscribe((st, prev) => {
       if (st.editSeq !== prev.editSeq) {
+        retryCountRef.current = 0;         // 有新编辑：重置失败退避（新内容值得重新尝试）
         if (timerRef.current) window.clearTimeout(timerRef.current);
         timerRef.current = window.setTimeout(() => void runRef.current(), DEBOUNCE);
       }
     });
-    return () => { unsub(); if (timerRef.current) window.clearTimeout(timerRef.current); clearRetry(); };
+    return () => {
+      mountedRef.current = false;
+      unsub(); if (timerRef.current) window.clearTimeout(timerRef.current); clearRetry();
+    };
   }, []);
 
   // 立即存净：等待在途 → 补存 → 返回是否「已全部落库且无冲突」

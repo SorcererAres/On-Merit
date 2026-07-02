@@ -20,34 +20,37 @@ function greeting(): string {
   return `${t}，准备好迎接下一个闪光机会了吗？`;
 }
 
-// 缩略图：懒加载（进入视口附近才拉全量数据）→ 渲一张缩小 A4；按 id+version 缓存（编辑后失效）。
+// 缩略图：虚拟化——持续观察可见性，仅可见（含 300px 预取边距）时挂 iframe，离屏即卸载，
+// 界住并发 iframe 数（不随滚动累积）。渲染结果按 id:version 缓存（编辑后失效），离屏回来直接命中不重拉。
 const _thumbCache = new Map<string, string>();
 function Thumb({ id, version }: { id: string; version: number }) {
   const cacheKey = `${id}:${version}`;
   const boxRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [visible, setVisible] = useState(false);
   const [doc, setDoc] = useState<string | null>(_thumbCache.get(cacheKey) ?? null);
 
-  // IntersectionObserver 懒加载：仅可见（含 200px 预取边距）的卡片拉数据，避免大库无界 iframe。
+  // 可见性观察：全程 observe，进/出视口切 visible；离屏时卸载 iframe，回屏再挂。
   useEffect(() => {
-    if (doc) return;
-    let alive = true;
-    const load = () => {
-      getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
-        const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
-        const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
-        for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }  // 淘汰同 id 旧版本
-        _thumbCache.set(cacheKey, d); if (alive) setDoc(d);
-      }).catch(() => { /* 忽略缩略图失败 */ });
-    };
     const box = boxRef.current;
-    if (!box || typeof IntersectionObserver === "undefined") { load(); return () => { alive = false; }; }
-    const io = new IntersectionObserver((es) => {
-      if (es.some((e) => e.isIntersecting)) { io.disconnect(); load(); }
-    }, { rootMargin: "200px" });
+    if (!box || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
+    const io = new IntersectionObserver((es) => setVisible(es[0].isIntersecting), { rootMargin: "300px" });
     io.observe(box);
-    return () => { alive = false; io.disconnect(); };
-  }, [cacheKey, id, doc]);
+    return () => io.disconnect();
+  }, []);
+
+  // 首次可见且未缓存 → 拉全量数据渲染；缓存后离屏回来命中，不重复请求。
+  useEffect(() => {
+    if (!visible || doc) return;
+    let alive = true;
+    getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
+      const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
+      const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
+      for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }  // 淘汰同 id 旧版本
+      _thumbCache.set(cacheKey, d); if (alive) setDoc(d);
+    }).catch(() => { /* 忽略缩略图失败 */ });
+    return () => { alive = false; };
+  }, [visible, doc, cacheKey, id]);
 
   const fit = () => {
     const idoc = iframeRef.current?.contentDocument;
@@ -55,7 +58,7 @@ function Thumb({ id, version }: { id: string; version: number }) {
   };
   return (
     <div ref={boxRef} className="h-[176px] overflow-hidden rounded-t-xl border-b border-border bg-[#f5f5f4]">
-      {doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
+      {visible && doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
         srcDoc={doc} onLoad={fit} className="pointer-events-none h-[560px] w-full border-0" />}
     </div>
   );
