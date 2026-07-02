@@ -115,7 +115,7 @@ export function EditorPage() {
   const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已保存";
 
   return (
-    <div className="flex h-[calc(100vh-65px)] min-h-0 flex-col">
+    <div className="anim-in flex h-[calc(100vh-65px)] min-h-0 flex-col">
       {/* 顶栏 */}
       <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background px-4 py-2.5">
         <Button variant="ghost" aria-label="返回列表" onClick={() => nav("/")}><ArrowLeft className="h-4 w-4" /></Button>

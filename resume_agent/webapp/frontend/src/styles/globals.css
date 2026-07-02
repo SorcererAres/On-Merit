@@ -13,3 +13,8 @@
 
 /* shadcn 组件默认在 @layer base 里给 body 铺 bg-background/text-foreground；
    tokens.css 已直接设定 body 底色，二者一致，无需重复。 */
+
+/* 页面入场动画（画廊↔编辑器推拉感）；尊重 prefers-reduced-motion。 */
+@keyframes anim-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.anim-in { animation: anim-in .28s cubic-bezier(.16,1,.3,1) both; }
+@media (prefers-reduced-motion: reduce) { .anim-in { animation: none; } }
