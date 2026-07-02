@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createBrowserRouter, RouterProvider, Outlet, Navigate, Link, useParams } from "react-router-dom";
 import { Dashboard } from "@/pages/Dashboard";
 import { EditorPage } from "@/pages/EditorPage";
+import { DiagnoseV3 } from "@/pages/DiagnoseV3";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 
@@ -30,6 +31,8 @@ function Layout() {
 
 // 数据路由（useBlocker 需要它）
 const router = createBrowserRouter([
+  // 设计稿 1:1 静态还原（Figma All-IN-AI 835:164），自带全局顶栏，故放 Layout 外
+  { path: "/v3", element: <DiagnoseV3 /> },
   {
     element: <Layout />,
     children: [
