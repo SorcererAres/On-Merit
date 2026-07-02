@@ -384,7 +384,8 @@ def api_evaluate(req: EvalReq):
     return {"evaluation": evaluation, "score": total_score(evaluation),
             "max": max_total(evaluation),
             "gaps": fact_gap_report(req.resume, evaluation, rubric),
-            "role_label": rubric.role}
+            "role_label": rubric.role,
+            "dim_labels": {c.key: c.label for c in rubric.categories}}
 
 
 @app.post("/api/render")
@@ -437,10 +438,10 @@ def _check_layout(ls: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not isinstance(ls, dict):
         raise ApiError("BAD_LAYOUT", "layout_settings 必须是对象")
     tid = ls.get("templateId", "classic")
-    if tid not in _TEMPLATE_IDS:
+    if not isinstance(tid, str) or tid not in _TEMPLATE_IDS:
         raise ApiError("BAD_LAYOUT", f"未知模板：{tid}，可选 {sorted(_TEMPLATE_IDS)}")
     color = ls.get("themeColor", "ink")
-    if color not in _THEME_COLORS and not _HEX_RE.match(str(color)):
+    if not isinstance(color, str) or (color not in _THEME_COLORS and not _HEX_RE.match(color)):
         raise ApiError("BAD_LAYOUT", "themeColor 必须是预设色或 #RRGGBB")
     return {
         "templateId": tid,

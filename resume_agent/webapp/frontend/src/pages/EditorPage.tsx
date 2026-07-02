@@ -162,7 +162,7 @@ export function EditorPage() {
       )}
 
       {/* 步骤内容 */}
-      {step === "diagnose" && <DiagnoseView />}
+      {step === "diagnose" && <DiagnoseView onImport={() => setImportOpen(true)} />}
       {step === "optimize" && <OptimizeView />}
       {step === "export" && <ExportView key={hydrationKey} />}
 

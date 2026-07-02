@@ -48,6 +48,7 @@ export interface Evaluation {
 }
 export interface EvalResult {
   evaluation: Evaluation; score: number; max: number; gaps: string[]; role_label: string;
+  dim_labels?: Record<string, string>;   // 维度机器键 → 人类可读标签
 }
 
 export interface ApiError {

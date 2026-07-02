@@ -20,30 +20,40 @@ function greeting(): string {
   return `${t}，准备好迎接下一个闪光机会了吗？`;
 }
 
-// 缩略图：懒加载（进入视口才拉全量数据）→ 渲一张缩小 A4；结果按 id 缓存。
+// 缩略图：懒加载（进入视口附近才拉全量数据）→ 渲一张缩小 A4；按 id+version 缓存（编辑后失效）。
 const _thumbCache = new Map<string, string>();
-function Thumb({ id }: { id: string }) {
+function Thumb({ id, version }: { id: string; version: number }) {
+  const cacheKey = `${id}:${version}`;
+  const boxRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [doc, setDoc] = useState<string | null>(_thumbCache.get(id) ?? null);
+  const [doc, setDoc] = useState<string | null>(_thumbCache.get(cacheKey) ?? null);
 
-  // 挂载即拉全量数据渲缩略图（结果缓存）。大简历库可再引 IntersectionObserver 懒加载。
+  // IntersectionObserver 懒加载：仅可见（含 200px 预取边距）的卡片拉数据，避免大库无界 iframe。
   useEffect(() => {
     if (doc) return;
     let alive = true;
-    getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
-      const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
-      const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
-      _thumbCache.set(id, d); if (alive) setDoc(d);
-    }).catch(() => { /* 忽略缩略图失败 */ });
-    return () => { alive = false; };
-  }, [id, doc]);
+    const load = () => {
+      getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
+        const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
+        const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
+        _thumbCache.set(cacheKey, d); if (alive) setDoc(d);
+      }).catch(() => { /* 忽略缩略图失败 */ });
+    };
+    const box = boxRef.current;
+    if (!box || typeof IntersectionObserver === "undefined") { load(); return () => { alive = false; }; }
+    const io = new IntersectionObserver((es) => {
+      if (es.some((e) => e.isIntersecting)) { io.disconnect(); load(); }
+    }, { rootMargin: "200px" });
+    io.observe(box);
+    return () => { alive = false; io.disconnect(); };
+  }, [cacheKey, id, doc]);
 
   const fit = () => {
     const idoc = iframeRef.current?.contentDocument;
     if (idoc?.documentElement) idoc.documentElement.style.setProperty("--fit", "0.28");
   };
   return (
-    <div className="h-[176px] overflow-hidden rounded-t-xl border-b border-border bg-[#f5f5f4]">
+    <div ref={boxRef} className="h-[176px] overflow-hidden rounded-t-xl border-b border-border bg-[#f5f5f4]">
       {doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
         srcDoc={doc} onLoad={fit} className="pointer-events-none h-[560px] w-full border-0" />}
     </div>
@@ -73,7 +83,7 @@ export function Dashboard() {
   };
   const remove = async (id: string, title: string) => {
     if (!window.confirm(`确定永久删除「${title}」？此操作会一并清除其历史版本，且不可撤销。`)) return;
-    try { await delJSON(`/api/resumes/${id}`); toast.success("已删除"); _thumbCache.delete(id); refresh(); }
+    try { await delJSON(`/api/resumes/${id}`); toast.success("已删除"); _thumbCache.clear(); refresh(); }
     catch (e) { toast.error((e as Error).message); }
   };
 
@@ -93,7 +103,7 @@ export function Dashboard() {
         {list?.map((r) => (
           <div key={r.id} className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card">
             <button className="text-left" onClick={() => nav(`/editor/${r.id}`)} aria-label={`打开 ${r.title}`}>
-              <Thumb id={r.id} />
+              <Thumb id={r.id} version={r.version} />
             </button>
             <div className="flex items-center gap-2 p-3">
               <button className="min-w-0 flex-1 text-left" onClick={() => nav(`/editor/${r.id}`)}>

@@ -19,33 +19,35 @@ export function useAutoSave(id: string) {
     if (savingRef.current || s.conflict) return;
     if (s.editSeq <= s.savedSeq || !s.resume || s.resumeId !== id) return;
     const seq = s.editSeq;                 // savePoint（title/dirty）
-    const exportMdSeqAtSave = s.exportMdSeq; // exportMd 专属 savePoint
     const layoutSeqAtSave = s.layoutSeq;   // layout 专属 savePoint
     const loadSeq = s.loadSeq;             // 语境戳：重载后丢弃本次结果
     savingRef.current = true; setSaving(true);
+    let committed = false;                  // 本次是否成功落库（决定是否 trailing）
     try {
       const r = await putJSON<ResumeRecord>(`/api/resumes/${id}`, {
         version: s.version,
-        fields: ["data", "jd", "role", "title", "export_md", "source_text", "layout_settings"],
+        fields: ["data", "jd", "role", "title", "source_text", "layout_settings"],
         data: s.resume, jd: s.jd, role: s.role, title: s.title,
-        export_md: s.exportMd, source_text: s.sourceText, layout_settings: s.layoutSettings,
+        source_text: s.sourceText, layout_settings: s.layoutSettings,
         note: "自动保存",
       });
       const cur = useStore.getState();
       if (cur.resumeId === id && cur.loadSeq === loadSeq) {
-        cur.markSaved({ seq, version: r.version, title: r.title, exportMd: r.export_md ?? null,
-          exportMdSeqAtSave, layoutSettings: r.layout_settings ?? null, layoutSeqAtSave });
+        cur.markSaved({ seq, version: r.version, title: r.title,
+          layoutSettings: r.layout_settings ?? null, layoutSeqAtSave });
+        committed = true;
       }
-      // 语境已换（重载/切简历）：丢弃结果，不 markSaved
+      // 语境已换（重载/切简历）：丢弃结果，不 markSaved，不 trailing
     } catch (e) {
       const cur = useStore.getState();
       if (cur.resumeId === id && cur.loadSeq === loadSeq
           && (e as ApiErr)?.code === "VERSION_CONFLICT") cur.setConflict();
-      // 其它错误：保持 dirty，下次编辑或 saveNow 再试
+      // 其它错误：保持 dirty；不立即重试（避免无退避风暴），下次编辑或 saveNow 再试
     } finally {
       savingRef.current = false; setSaving(false);
+      // 仅在「本次已成功落库」且期间有更新编辑时才 trailing——否则失败会自触发无退避死循环。
       const s2 = useStore.getState();
-      if (s2.editSeq > s2.savedSeq && !s2.conflict && s2.resumeId === id && s2.loadSeq === loadSeq) {
+      if (committed && s2.editSeq > s2.savedSeq && !s2.conflict && s2.resumeId === id && s2.loadSeq === loadSeq) {
         void run();                        // trailing：在途期间的新编辑
       }
     }

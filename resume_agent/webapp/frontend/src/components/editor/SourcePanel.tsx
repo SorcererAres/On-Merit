@@ -1,18 +1,35 @@
 // 左栏 · 原件（source_text 只读）+ 近似定位高亮。
-// 规则（见 wizard-flow-v2 §三）：最小长度 ≥8、在原文中**唯一精确出现**才高亮，否则不高亮
-// （歧义/多命中/未命中一律不高亮，避免误导）；无 source_text 则显示占位。
-import { useEffect, useRef } from "react";
+// 规则（见 wizard-flow-v2 §三）：空白归一化后长度 ≥8、在原文中**唯一出现**才高亮，否则不高亮
+// （歧义/多命中/未命中一律不高亮，避免误导）；换行/多空格差异容忍；无 source_text 则显示占位。
+import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "@/store/useStore";
 
 const MIN_LEN = 8;
 
-function locate(source: string, query: string): [number, number] | null {
-  const q = (query || "").trim();
+// 归一化：把连续空白折成单个空格并去首尾，同时记录每个归一字符回映到原文的下标。
+function normalize(s: string): { norm: string; map: number[] } {
+  const norm: string[] = [];
+  const map: number[] = [];
+  let prevSpace = true;   // 起始视为空格，天然去掉前导空白
+  for (let i = 0; i < s.length; i++) {
+    if (/\s/.test(s[i])) {
+      if (!prevSpace) { norm.push(" "); map.push(i); prevSpace = true; }
+    } else {
+      norm.push(s[i]); map.push(i); prevSpace = false;
+    }
+  }
+  while (norm.length && norm[norm.length - 1] === " ") { norm.pop(); map.pop(); }  // 去尾部空白
+  return { norm: norm.join(""), map };
+}
+
+function locate(source: string, srcNorm: { norm: string; map: number[] }, query: string): [number, number] | null {
+  const q = normalize(query).norm;
   if (q.length < MIN_LEN) return null;
-  const first = source.indexOf(q);
+  const { norm, map } = srcNorm;
+  const first = norm.indexOf(q);
   if (first === -1) return null;
-  if (source.indexOf(q, first + 1) !== -1) return null;  // 多命中（歧义）→ 不高亮
-  return [first, first + q.length];
+  if (norm.indexOf(q, first + 1) !== -1) return null;    // 多命中（歧义）→ 不高亮
+  return [map[first], map[first + q.length - 1] + 1];     // 归一下标回映原文下标
 }
 
 export function SourcePanel() {
@@ -20,7 +37,8 @@ export function SourcePanel() {
   const linkQuery = useStore((s) => s.linkQuery);
   const markRef = useRef<HTMLElement>(null);
 
-  const span = sourceText ? locate(sourceText, linkQuery ?? "") : null;
+  const srcNorm = useMemo(() => normalize(sourceText ?? ""), [sourceText]);
+  const span = sourceText ? locate(sourceText, srcNorm, linkQuery ?? "") : null;
   useEffect(() => { markRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }); }, [linkQuery, span?.[0]]);
 
   return (
