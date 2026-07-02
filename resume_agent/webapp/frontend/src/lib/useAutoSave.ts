@@ -25,8 +25,9 @@ export function useAutoSave(id: string) {
     try {
       const r = await putJSON<ResumeRecord>(`/api/resumes/${id}`, {
         version: s.version,
-        fields: ["data", "jd", "role", "title", "export_md"],
-        data: s.resume, jd: s.jd, role: s.role, title: s.title, export_md: s.exportMd,
+        fields: ["data", "jd", "role", "title", "export_md", "source_text"],
+        data: s.resume, jd: s.jd, role: s.role, title: s.title,
+        export_md: s.exportMd, source_text: s.sourceText,
         note: "自动保存",
       });
       const cur = useStore.getState();

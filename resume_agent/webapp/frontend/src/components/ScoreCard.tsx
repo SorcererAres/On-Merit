@@ -1,8 +1,11 @@
 import { Progress, Alert } from "./ui/misc";
+import { RadarChart } from "./editor/RadarChart";
 import type { EvalResult } from "@/types";
 
-// 评估报告卡：分数 + 各维度条 + 核心优势 + 需真实补充。诊断基线与修改后复评共用。
+// 评估报告卡：分数 + 能力雷达 + 各维度条 + 核心优势 + 需真实补充。诊断基线与修改后复评共用。
 export function ScoreCard({ data, compact = false }: { data: EvalResult; compact?: boolean }) {
+  const dims = Object.entries(data.evaluation.scores)
+    .map(([k, c]) => ({ label: k, ratio: c.max ? c.score / c.max : 0 }));
   return (
     <div>
       <div className="flex items-baseline gap-4">
@@ -11,6 +14,7 @@ export function ScoreCard({ data, compact = false }: { data: EvalResult; compact
           / {data.max} · {data.role_label}<br />模型启发式评分，非面试率
         </span>
       </div>
+      {!compact && <RadarChart dims={dims} />}
       <div className="mt-4 space-y-3">
         {Object.entries(data.evaluation.scores).map(([k, c]) => (
           <div key={k}>

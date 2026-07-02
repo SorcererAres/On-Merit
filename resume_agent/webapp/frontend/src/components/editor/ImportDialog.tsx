@@ -19,7 +19,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const ingest = useTask((signal) => {
     const fd = new FormData();
     if (file) fd.append("file", file); else fd.append("text", text);
-    return postForm<{ resume: Resume; warnings: Warning[]; usedOcr: boolean }>("/api/ingest", fd, signal);
+    return postForm<{ resume: Resume; warnings: Warning[]; usedOcr: boolean; source_text: string }>("/api/ingest", fd, signal);
   });
 
   const submit = async () => {
@@ -35,7 +35,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (s1.resumeId !== start.id || s1.loadSeq !== start.load) return;  // 语境已换，不写
     if (s1.editSeq !== start.seq
         && !window.confirm("解析期间你改动了当前简历，导入会覆盖这些改动。继续？")) return;
-    setImported(r.resume, r.warnings, r.usedOcr);
+    setImported(r.resume, r.warnings, r.usedOcr, r.source_text ?? null);
     toast.success(r.usedOcr ? "已识别（OCR），请重点核对" : "已导入");
     onClose();
     // 岗位检测异步回填：绑定「导入完成后」的完整戳——期间用户改过任何东西（含手动选岗位）都不回填
@@ -74,6 +74,21 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="text-center text-muted-foreground text-copy-14">或</div>
           <Textarea rows={5} aria-label="粘贴简历文本" placeholder="粘贴简历文本…" value={text} onChange={(e) => setText(e.target.value)} />
         </div>
+        {ingest.loading && (
+          <div className="mt-3 space-y-2" aria-hidden>
+            {[92, 76, 84, 60].map((w, i) => (
+              <div key={i} className="skel h-3 rounded" style={{ width: `${w}%` }} />
+            ))}
+            <style>{`
+              .skel{position:relative;overflow:hidden;background:var(--muted)}
+              .skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
+                background:linear-gradient(90deg,transparent,color-mix(in oklab,var(--primary) 22%,transparent),transparent);
+                animation:scan 1.1s ease-in-out infinite}
+              @keyframes scan{100%{transform:translateX(100%)}}
+              @media (prefers-reduced-motion: reduce){.skel::after{animation:none}}
+            `}</style>
+          </div>
+        )}
         <Button className="mt-3" disabled={ingest.loading} onClick={submit}>解析并导入</Button>
         <TaskStatus loading={ingest.loading} elapsed={ingest.elapsed} stop={ingest.stop} error={ingest.error} />
       </div>

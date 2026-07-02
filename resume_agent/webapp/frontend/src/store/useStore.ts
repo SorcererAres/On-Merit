@@ -12,7 +12,8 @@ export interface Diagnosis {
 
 export interface ResumeRecord {
   id: string; title: string; role: string; jd: string;
-  data: Resume; export_md?: string | null; version: number;
+  data: Resume; export_md?: string | null; source_text?: string | null;
+  layout_settings?: Record<string, unknown> | null; version: number;
 }
 
 interface State {
@@ -22,6 +23,8 @@ interface State {
   jd: string;
   role: string;
   exportMd: string | null;                    // 排版 Markdown（null=从 data 派生）
+  sourceText: string | null;                  // 节点1 原文层（ingest 抽取，随保存持久化）
+  linkQuery: string | null;                   // 联动高亮目标（UI 临时，不持久、不置 dirty）
   diagnosis: Diagnosis | null;
   improve: { changes: Change[]; notes: string[]; supplements: string[] } | null;
   afterScore: { before: number | null; score: number; max: number } | null;
@@ -38,7 +41,8 @@ interface State {
   exportMdSeq: number;    // exportMd 最近一次本地变更时的 editSeq（精确判定是否在保存期间被改）
   conflict: boolean;
 
-  setImported: (r: Resume, warnings: Warning[], usedOcr: boolean) => void;
+  setImported: (r: Resume, warnings: Warning[], usedOcr: boolean, sourceText: string | null) => void;
+  setLinkQuery: (q: string | null) => void;
   editResume: (r: Resume) => void;
   setJD: (jd: string) => void;
   setRole: (role: string) => void;
@@ -69,11 +73,14 @@ const replaceDoc = (r: Resume, extra: Partial<State> = {}) =>
 
 export const useStore = create<State>((set) => ({
   resume: null, warnings: [], usedOcr: false, jd: "", role: "engineer", exportMd: null,
+  sourceText: null, linkQuery: null,
   diagnosis: null, improve: null, afterScore: null,
   resumeId: null, version: 1, title: "", dirty: false,
   editSeq: 0, savedSeq: 0, hydrationKey: 0, loadSeq: 0, exportMdSeq: 0, conflict: false,
 
-  setImported: (r, warnings, usedOcr) => set(replaceDoc(r, { warnings, usedOcr })),
+  // 导入：新文档 + 原文层（sourceText 随 replaceDoc 置 dirty，由 autosave 持久化）
+  setImported: (r, warnings, usedOcr, sourceText) => set(replaceDoc(r, { warnings, usedOcr, sourceText })),
+  setLinkQuery: (q) => set({ linkQuery: q }),   // UI 临时，不 bump、不 dirty
   applyResume: (r) => set(replaceDoc(r)),
 
   editResume: (r) => set(bump({ resume: r, diagnosis: null, improve: null, afterScore: null })),
@@ -90,7 +97,7 @@ export const useStore = create<State>((set) => ({
   loadRecord: (rec) => set((s) => ({
     resumeId: rec.id, version: rec.version, title: rec.title,
     resume: rec.data, jd: rec.jd || "", role: rec.role || "engineer",
-    exportMd: rec.export_md ?? null,
+    exportMd: rec.export_md ?? null, sourceText: rec.source_text ?? null, linkQuery: null,
     warnings: [], usedOcr: false,
     diagnosis: null, improve: null, afterScore: null,
     editSeq: 0, savedSeq: 0, dirty: false, conflict: false,

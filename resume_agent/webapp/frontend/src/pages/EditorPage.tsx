@@ -11,6 +11,7 @@ import type { ResumeRecord } from "@/store/useStore";
 import { SectionEditor } from "@/components/editor/SectionEditor";
 import { LivePreview } from "@/components/editor/LivePreview";
 import { AIPanel } from "@/components/editor/AIPanel";
+import { DiagnoseView } from "@/components/editor/DiagnoseView";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { StepExport } from "@/steps/StepExport";
 import { Button } from "@/components/ui/button";
@@ -189,7 +190,7 @@ export function EditorPage() {
       )}
 
       {/* 步骤内容 */}
-      {step === "diagnose" && <ThreeCol aiOnly="diagnose" />}
+      {step === "diagnose" && <DiagnoseView />}
       {step === "optimize" && <ThreeCol aiOnly="improve" />}
       {step === "export" && (
         <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto">

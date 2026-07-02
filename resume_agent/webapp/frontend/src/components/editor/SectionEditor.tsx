@@ -20,7 +20,7 @@ function Section({ title, defaultOpen = true, children }: {
 }
 
 export function SectionEditor() {
-  const { resume, warnings, usedOcr, editResume } = useStore();
+  const { resume, warnings, usedOcr, editResume, setLinkQuery } = useStore();
   const [d, setD] = useState<Resume>(() => structuredClone(resume ?? {}));
   const first = useRef(true);
 
@@ -35,7 +35,11 @@ export function SectionEditor() {
   const b = (d.basics ??= {});
 
   return (
-    <div>
+    // 聚焦任意字段 → 把其值设为联动定位目标（SourcePanel 在原文中近似高亮）
+    <div onFocusCapture={(e) => {
+      const t = e.target as HTMLInputElement | HTMLTextAreaElement;
+      if ("value" in t && t.value) setLinkQuery(t.value);
+    }}>
       {usedOcr && <Alert tone="amber" className="m-3">本简历经图片 OCR 识别，个别文字可能有误，请重点核对。</Alert>}
       {warnings.length > 0 && (
         <Alert tone="amber" className="m-3">
