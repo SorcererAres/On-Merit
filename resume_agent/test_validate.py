@@ -111,7 +111,66 @@ def test_length_normal_ok():
     print("OK: 正常简历不被体量闸误伤")
 
 
+def test_new_fields_valid_full_roundtrip():
+    """编辑表单 v3 全新字段合法记录：不报错。"""
+    r = {
+        "basics": {"name": "张三", "gender": "male", "birthMonth": "1995-08",
+                   "wechat": "zs_wx", "hometown": "北京", "tags": ["设计", "AI"]},
+        "education": [{"institution": "某大学", "studyMode": "full_time", "description": "**主修**课程"}],
+        "work": [{"name": "A 公司", "description": "- 做了 X\n- 做了 Y"}],
+        "projects": [{"name": "P", "role": "负责人", "startDate": "2023-01", "endDate": "至今",
+                      "description": "STAR"}],
+        "skills_md": "- **技能**：Python",
+        "job_intent": {"positions": ["产品经理"], "city": "上海"},
+        "internships": [{"name": "实习公司", "description": "实习内容"}],
+        "organizations": [{"name": "社团", "role": "部长", "description": "社团经历"}],
+        "campus": [{"name": "品牌大使", "description": "x"}],
+        "thesis": [{"title": "毕设", "description": "x"}],
+        "competitions": [{"name": "竞赛", "award": "一等奖", "description": "x"}],
+        "custom_sections": [{"id": "c1", "title": "个人作品", "content": "内容"},
+                            {"id": "c2", "title": "其他", "content": "内容"}],
+        "modules_order": ["job_intent", "internships", "custom:c1", "custom:c2"],
+    }
+    assert validate.validate_resume(r) == [], validate.validate_resume(r)
+    print("OK: v3 新字段全字段合法记录通过")
+
+
+def test_new_fields_reject_each_rule():
+    def has(data, frag):
+        errs = validate.validate_resume(data)
+        assert any(frag in e for e in errs), f"{frag} 未被拦截：{errs}"
+    has({"basics": {"gender": "x"}}, "gender")
+    has({"basics": {"birthMonth": "1995-13"}}, "birthMonth")          # 非法月份
+    has({"basics": {"birthMonth": "95-8"}}, "birthMonth")             # 格式
+    has({"basics": {"tags": ["a"] * 9}}, "最多 8")
+    has({"basics": {"tags": ["x" * 13]}}, "标签过长")
+    has({"basics": {"hometown": "城" * 21}}, "hometown 过长")
+    has({"education": [{"studyMode": "x"}]}, "studyMode")
+    has({"work": [{"description": 123}]}, "work[0].description")
+    has({"projects": [{"startDate": "x" * 21}]}, "projects[0].startDate")
+    has({"job_intent": "x"}, "job_intent 必须是对象")
+    has({"job_intent": {"positions": ["p"] * 6}}, "最多 5")
+    has({"job_intent": {"city": "城" * 21}}, "job_intent.city")
+    has({"internships": [{}] * 21}, "internships 最多 20")
+    has({"internships": ["x"]}, "internships[0] 必须是对象")
+    has({"custom_sections": [{"id": "c1"}, {"id": "c1"}]}, "id 必须唯一")
+    has({"custom_sections": [{"title": "t" * 11}]}, "title 非法")
+    has({"modules_order": ["job_intent", "job_intent"]}, "重复项")
+    has({"modules_order": ["unknown_mod"]}, "未知模块")
+    has({"modules_order": ["custom:nope"]}, "未引用存在的")
+    print("OK: v3 新字段各规则逐条拦截")
+
+
+def test_new_fields_absent_ok():
+    """老数据（无任何新字段）不受影响。"""
+    assert validate.validate_resume(RESUME) == []
+    print("OK: 老数据无新字段不被误伤")
+
+
 if __name__ == "__main__":
+    test_new_fields_valid_full_roundtrip()
+    test_new_fields_reject_each_rule()
+    test_new_fields_absent_ok()
     test_sample_is_valid()
     test_root_not_object()
     test_section_not_list()
