@@ -8,7 +8,7 @@ import { TaskStatus } from "@/components/TaskStatus";
 import { ScoreCard } from "@/components/ScoreCard";
 import { MatchReportView } from "@/components/MatchReportView";
 import type { EvalResult, MatchReport, Role } from "@/types";
-import { Wand2 } from "lucide-react";
+import { Wand2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 export function DiagnosePanel() {
@@ -57,18 +57,22 @@ export function DiagnosePanel() {
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3.5">
-      <label htmlFor="dg-role" className="block text-[14px] leading-[17px] text-foreground">岗位</label>
-      <div className="mt-2 flex items-center gap-1.5">
-        <select id="dg-role" aria-label="评分岗位" value={role} disabled={detect.loading}
-          onChange={(e) => setRole(e.target.value)}
-          className="h-9 w-full appearance-none rounded-[8px] border border-border bg-background px-3 text-[14px] text-foreground focus:outline-none">
-          {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-        </select>
+      {/* 设计稿 843:268：select 全宽带 chevron；自动检测魔棒挪到 label 行右端（功能保留，不挤占 select） */}
+      <div className="flex items-center justify-between">
+        <label htmlFor="dg-role" className="text-[14px] leading-[17px] text-foreground">岗位</label>
         <button aria-label="自动检测岗位" title="有 JD 以 JD 为准，否则按简历" disabled={detect.loading}
           onClick={runDetect}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground disabled:opacity-50">
-          <Wand2 className="h-4 w-4" />
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-50">
+          <Wand2 className="h-3.5 w-3.5" />
         </button>
+      </div>
+      <div className="relative mt-2">
+        <select id="dg-role" aria-label="评分岗位" value={role} disabled={detect.loading}
+          onChange={(e) => setRole(e.target.value)}
+          className="h-9 w-full appearance-none rounded-[8px] border border-border bg-background pl-3 pr-9 text-[14px] text-foreground focus:outline-none">
+          {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       </div>
 
       <label htmlFor="dg-jd" className="mt-3.5 block text-[14px] leading-[17px] text-foreground">目标 JD</label>

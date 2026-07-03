@@ -26,6 +26,7 @@ import type { Diagnosis } from "@/store/useStore";
 import {
   ArrowLeft, PanelLeft, Columns2, PanelRight,
   Upload, Download, Save, X, History, FileClock, Check, ChevronLeft,
+  FileText, Sparkles,
 } from "lucide-react";
 
 type Mode = "diagnose" | "layout";
@@ -254,7 +255,6 @@ export function EditorPage() {
   if (resumeId !== id) return <div className="px-6 py-8 text-copy-14 text-muted-foreground">加载中…</div>;
 
   const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已自动保存";
-  const rightTitle = mode === "layout" ? "样式" : rightView === "polish" ? "AI 润色" : "诊断";
 
   return (
     <div className="anim-in flex h-screen flex-col bg-background">
@@ -353,15 +353,31 @@ export function EditorPage() {
 
         {rightOpen && (
           <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-background">
-            <PanelBar title={rightTitle}>
-              {mode === "diagnose" && rightView === "polish" && (
-                <IconBtn label="回到诊断" onClick={() => setRightView("diagnose")}><History className="h-4 w-4 rotate-180" /></IconBtn>
-              )}
-              {mode === "diagnose" && rightView === "diagnose" && (
-                <IconBtn label="诊断报告记录" onClick={openReports}><FileClock className="h-4 w-4" /></IconBtn>
-              )}
-              <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
-            </PanelBar>
+            {mode === "layout" ? (
+              <PanelBar title="样式">
+                <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
+              </PanelBar>
+            ) : (
+              /* 诊断模式：标题栏内嵌「诊断 / AI 润色」双 tab（Figma 843:268）——并置互切，取代旧的整栏切换+返回 */
+              <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
+                <div className="flex items-center gap-2">
+                  {([["diagnose", "诊断", FileText], ["polish", "AI 润色", Sparkles]] as const).map(([v, lbl, Icon]) => (
+                    <button key={v} aria-pressed={rightView === v} onClick={() => setRightView(v)}
+                      className={cn("flex h-8 items-center gap-1 rounded-[8px] pl-2 pr-2 text-[14px] leading-6",
+                        rightView === v
+                          ? "border border-border bg-background text-foreground shadow-card"
+                          : "text-foreground hover:bg-accent/40")}>
+                      <Icon className={cn("h-4 w-4", v === "polish" && "text-indigo-500")} />
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                <div className="ml-auto flex items-center gap-1">
+                  <IconBtn label="诊断报告记录" onClick={openReports}><FileClock className="h-4 w-4" /></IconBtn>
+                  <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
+                </div>
+              </div>
+            )}
             {mode === "layout"
               ? <StylePanel device={device} setDevice={setDevice} onExport={() => printRef.current()} />
               : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel />}
