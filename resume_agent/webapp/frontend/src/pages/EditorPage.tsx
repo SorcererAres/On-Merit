@@ -1,65 +1,166 @@
-// 文档外壳 + 向导状态机（W0，见 docs/plans/wizard-flow-v2.md §一）。
-// 外壳唯一负责 loadRecord/useAutoSave(id)/409/离开守卫；step 为内部状态，同步 URL ?step=，
-// 切步不重载/不+loadSeq/不+hydrationKey/不卸载 autosave；useBlocker 排除同 pathname 仅切步。
-// W0 各步先复用现有组件（诊断/优化=三栏，AIPanel 锁 tab；导出=StepExport），富界面留 W2–W5。
-import { useEffect, useState } from "react";
+// 文档外壳 · v3（按 Figma All-IN-AI 835:164 重构）：全局顶栏 + 三栏工作台，双模式「诊断/排版」。
+// - 外壳唯一负责 loadRecord/useAutoSave(id)/409/离开守卫（useBlocker 同 pathname 放行，仅切 ?mode 不拦）。
+// - 诊断模式：左「编辑简历」(SectionEditor) | 中 A4 预览（预览/原件 tab + AI 润色）| 右「诊断/AI 润色」。
+// - 排版模式：左「模板」| 中 A4 预览 | 右「样式」（多端 + 导出 PDF）。
+// - 「优化」并入「AI 润色」按钮（右栏切 polish 面板）；undo/redo 为防抖分组快照栈（上限 50）。
+// - 旧链接 ?step=optimize→诊断、?step=export→排版。
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useBlocker, useSearchParams } from "react-router-dom";
 import { getJSON, postJSON } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
 import { useStore } from "@/store/useStore";
-import type { ResumeRecord } from "@/store/useStore";
-import { DiagnoseView } from "@/components/editor/DiagnoseView";
-import { OptimizeView } from "@/components/editor/OptimizeView";
-import { ExportView } from "@/components/editor/ExportView";
+import type { ResumeRecord, Snapshot } from "@/store/useStore";
+import { SectionEditor } from "@/components/editor/SectionEditor";
+import { PreviewCanvas } from "@/components/editor/PreviewCanvas";
+import { DiagnosePanel } from "@/components/editor/DiagnosePanel";
+import { PolishPanel } from "@/components/editor/PolishPanel";
+import { TemplatesPanel, StylePanel } from "@/components/editor/LayoutPanels";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
-import { ArrowLeft, Check, FileUp, History, Save, X } from "lucide-react";
+import {
+  ArrowLeft, PanelLeft, Columns2, PanelRight, Undo2, Redo2,
+  Upload, Download, Save, X, History, Check,
+} from "lucide-react";
 
-type Step = "diagnose" | "optimize" | "export";
+type Mode = "diagnose" | "layout";
+type RightView = "diagnose" | "polish";
 interface RevisionMeta { id: string; note: string; created_at: string }
 
-const STEPS: { key: Step; label: string; hint: string }[] = [
-  { key: "diagnose", label: "1 诊断", hint: "核对 · 评估" },
-  { key: "optimize", label: "2 优化", hint: "改写 · 采纳" },
-  { key: "export", label: "3 导出", hint: "排版 · 导出" },
-];
+const UNDO_LIMIT = 50;
+const SNAP_DEBOUNCE = 600;
+
+/** 面板标题栏（左右栏共用）：44px，标题 14px 中黑 + 右侧图标组 */
+function PanelBar({ title, children }: { title: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
+      <span className="text-[14px] leading-[22px] font-medium text-foreground">{title}</span>
+      <div className="ml-auto flex items-center gap-1">{children}</div>
+    </div>
+  );
+}
+function IconBtn({ children, label, onClick, disabled }: {
+  children: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean;
+}) {
+  return (
+    <button aria-label={label} title={label} onClick={onClick} disabled={disabled}
+      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground">
+      {children}
+    </button>
+  );
+}
 
 export function EditorPage() {
   const { id = "" } = useParams();
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
-  const stepParam = sp.get("step");
-  const step: Step = stepParam === "optimize" || stepParam === "export" ? stepParam : "diagnose";
-  const setStep = (s: Step) => setSp({ step: s }, { replace: true });
+  // 模式：?mode=，兼容旧 ?step=（optimize→diagnose、export→layout）
+  const raw = sp.get("mode") ?? sp.get("step");
+  const mode: Mode = raw === "layout" || raw === "export" ? "layout" : "diagnose";
+  const setMode = (m: Mode) => setSp({ mode: m }, { replace: true });
 
   const {
     title, resumeId, version, dirty, conflict, hydrationKey,
-    loadRecord, setTitle,
+    loadRecord, setTitle, restoreSnapshot,
   } = useStore();
   const { saving, saveNow } = useAutoSave(id);
+
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const [rightView, setRightView] = useState<RightView>("diagnose");
+  const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [importOpen, setImportOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const [revisions, setRevisions] = useState<RevisionMeta[] | null>(null);
+  const printRef = useRef<() => void>(() => {});
+  const printApi = useCallback((fn: () => void) => { printRef.current = fn; }, []);
 
+  // ---- 载入 ----
   useEffect(() => {
     let alive = true;
     getJSON<ResumeRecord>(`/api/resumes/${id}`)
       .then((rec) => { if (alive) loadRecord(rec); })
-      .catch((e) => { toast.error(e.message || "简历不存在"); nav("/"); });
+      .catch((e) => { if (alive) { toast.error(e.message || "简历不存在"); nav("/"); } });  // 卸载后不再导航
     return () => { alive = false; };
   }, [id]);
 
+  // ---- undo/redo：防抖分组快照栈 ----
+  const undoStack = useRef<Snapshot[]>([]);
+  const redoStack = useRef<Snapshot[]>([]);
+  const lastSnap = useRef<Snapshot | null>(null);          // 当前已入账状态
+  const suppressSnap = useRef(false);                      // 恢复期间跳过采集
+  const snapTimer = useRef<number | null>(null);
+  const [, forceHist] = useState(0);                       // 仅驱动按钮禁用态刷新
+  const takeSnap = (): Snapshot => {
+    const s = useStore.getState();
+    return {
+      resume: s.resume ? structuredClone(s.resume) : null,
+      title: s.title, jd: s.jd, role: s.role, layoutSettings: { ...s.layoutSettings },
+      sourceText: s.sourceText, warnings: [...s.warnings], usedOcr: s.usedOcr,
+    };
+  };
+  // 把 pending 分组立即入账（undo/redo 前必须调用——否则防抖窗口内的编辑会被跳过且无法重做）
+  const commitGroup = () => {
+    if (lastSnap.current) {
+      undoStack.current.push(lastSnap.current);
+      if (undoStack.current.length > UNDO_LIMIT) undoStack.current.shift();
+    }
+    lastSnap.current = takeSnap();
+    redoStack.current = [];
+    forceHist((n) => n + 1);
+  };
+  const flushPending = () => {
+    if (snapTimer.current == null) return;
+    window.clearTimeout(snapTimer.current); snapTimer.current = null;
+    commitGroup();
+  };
+  useEffect(() => {
+    const unsub = useStore.subscribe((st, prev) => {
+      if (st.loadSeq !== prev.loadSeq) {                   // 载入/回滚：清栈、以载入态为基线
+        if (snapTimer.current) { window.clearTimeout(snapTimer.current); snapTimer.current = null; }  // 旧 pending 作废
+        undoStack.current = []; redoStack.current = []; lastSnap.current = takeSnap();
+        forceHist((n) => n + 1);
+        return;
+      }
+      if (st.editSeq === prev.editSeq) return;
+      if (suppressSnap.current) { suppressSnap.current = false; return; }
+      if (snapTimer.current) window.clearTimeout(snapTimer.current);
+      snapTimer.current = window.setTimeout(() => {
+        snapTimer.current = null;                          // 先置空：pending/已结算的判定依据
+        commitGroup();
+      }, SNAP_DEBOUNCE);
+    });
+    return () => { unsub(); if (snapTimer.current) window.clearTimeout(snapTimer.current); };
+  }, []);
+  const undo = () => {
+    flushPending();                                        // 防抖窗口内的编辑先入账，undo 才回到它的上一态
+    const prev = undoStack.current.pop();
+    if (!prev) return;
+    if (lastSnap.current) redoStack.current.push(lastSnap.current);
+    lastSnap.current = prev;
+    suppressSnap.current = true;
+    restoreSnapshot(prev);
+    forceHist((n) => n + 1);
+  };
+  const redo = () => {
+    flushPending();                                        // 有 pending 新编辑 ⇒ 入账并清 redo（新分支覆盖旧未来）
+    const next = redoStack.current.pop();
+    if (!next) return;
+    if (lastSnap.current) undoStack.current.push(lastSnap.current);
+    lastSnap.current = next;
+    suppressSnap.current = true;
+    restoreSnapshot(next);
+    forceHist((n) => n + 1);
+  };
+
+  // ---- 守卫 ----
   useEffect(() => {
     const h = (e: BeforeUnloadEvent) => { if (useStore.getState().dirty) { e.preventDefault(); e.returnValue = ""; } };
     window.addEventListener("beforeunload", h);
     return () => window.removeEventListener("beforeunload", h);
   }, []);
-
-  // 导航守卫：仅拦「离开当前 /editor/:id」（同 pathname 仅切 ?step 不拦）
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
     (dirty || conflict) && currentLocation.pathname !== nextLocation.pathname);
   useEffect(() => {
@@ -78,6 +179,7 @@ export function EditorPage() {
     })();
   }, [blocker.state]);
 
+  // ---- 409 双选项 ----
   const reload = async () => {
     const rec = await getJSON<ResumeRecord>(`/api/resumes/${id}`);
     loadRecord(rec); toast.message("已加载最新版本");
@@ -89,6 +191,7 @@ export function EditorPage() {
     if (ok) toast.success("已用你的版本覆盖"); else toast.error("覆盖保存失败，请重试");
   };
 
+  // ---- 历史版本 ----
   const openHistory = async () => {
     setHistOpen(true); setRevisions(null);
     try { setRevisions((await getJSON<{ revisions: RevisionMeta[] }>(`/api/resumes/${id}/revisions`)).revisions); }
@@ -112,44 +215,77 @@ export function EditorPage() {
 
   if (resumeId !== id) return <div className="px-6 py-8 text-copy-14 text-muted-foreground">加载中…</div>;
 
-  const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已保存";
+  const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已自动保存";
+  const rightTitle = mode === "layout" ? "样式" : rightView === "polish" ? "AI 润色" : "诊断";
 
   return (
-    <div className="anim-in flex h-[calc(100vh-65px)] min-h-0 flex-col">
-      {/* 顶栏 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border bg-background px-4 py-2.5">
-        <Button variant="ghost" aria-label="返回列表" onClick={() => nav("/")}><ArrowLeft className="h-4 w-4" /></Button>
-        <Input aria-label="简历名称" value={title} onChange={(e) => setTitle(e.target.value)}
-          className="max-w-[220px]" placeholder="未命名简历" />
-        <span className={cn("text-label-12 whitespace-nowrap",
-          conflict ? "text-destructive" : dirty || saving ? "text-muted-foreground" : "text-green-900")}>
-          {!dirty && !saving && !conflict && <Check className="inline h-3.5 w-3.5" />} {status} · v{version}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="secondary" onClick={() => setImportOpen(true)}><FileUp className="h-4 w-4" /> 导入</Button>
-          <Button variant="ghost" onClick={openHistory} aria-label="历史版本"><History className="h-4 w-4" /> 历史</Button>
-          <Button variant="secondary" disabled={saving || !dirty || conflict} onClick={() => void saveNow()}>
-            <Save className="h-4 w-4" /> 保存
-          </Button>
+    <div className="anim-in flex h-screen flex-col bg-background">
+      {/* ===== 全局顶栏 52px ===== */}
+      <header className="relative flex h-[52px] shrink-0 items-center border-b border-border px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <button aria-label="返回列表" onClick={() => nav("/")}
+            className="flex h-6 w-6 shrink-0 items-center justify-center text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <input aria-label="简历名称" value={title} onChange={(e) => setTitle(e.target.value)}
+            placeholder="未命名简历"
+            className="w-[160px] truncate rounded bg-transparent text-[16px] leading-6 font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-border" />
+          <span className={cn("flex shrink-0 items-center gap-1 text-[12px] leading-[17px]",
+            conflict ? "text-destructive" : "text-muted-foreground")}>
+            {!dirty && !saving && !conflict && <Check className="h-3 w-3" />}
+            {status} · v{version}
+          </span>
         </div>
-      </div>
 
-      {/* 全局步骤条 */}
-      <nav aria-label="步骤" className="flex shrink-0 gap-2 border-b border-border bg-background px-4 py-2.5">
-        {STEPS.map((s) => {
-          const active = s.key === step;
-          return (
-            <button key={s.key} aria-current={active ? "step" : undefined} onClick={() => setStep(s.key)}
-              className={cn("flex items-baseline gap-2 rounded-full border px-4 py-1.5 text-button-14 transition",
-                active ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground bg-background hover:text-foreground")}>
-              <span>{s.label}</span>
-              <span className={cn("text-label-12 font-normal hidden sm:inline",
-                active ? "text-primary-foreground/80" : "text-muted-foreground")}>{s.hint}</span>
+        {/* 诊断/排版 分段（绝对居中） */}
+        <div className="absolute left-1/2 top-1/2 flex h-8 w-[120px] -translate-x-1/2 -translate-y-1/2 items-center rounded-[8px] bg-muted p-[2px]">
+          {([["diagnose", "诊断"], ["layout", "排版"]] as const).map(([m, lbl]) => (
+            <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}
+              className={cn("h-7 w-14 rounded-[6px] text-[12px] leading-4",
+                mode === m ? "bg-background text-foreground shadow-card" : "text-muted-foreground")}>
+              {lbl}
             </button>
-          );
-        })}
-      </nav>
+          ))}
+        </div>
+
+        <div className="ml-auto flex items-center">
+          {/* 面板开关 */}
+          <div className="flex items-center gap-1 px-1.5">
+            <IconBtn label={leftOpen ? "收起左栏" : "展开左栏"} onClick={() => setLeftOpen(!leftOpen)}>
+              <PanelLeft className={cn("h-4 w-4", !leftOpen && "opacity-50")} />
+            </IconBtn>
+            <IconBtn label="双栏全开" onClick={() => { setLeftOpen(true); setRightOpen(true); }}>
+              <Columns2 className="h-4 w-4" />
+            </IconBtn>
+            <IconBtn label={rightOpen ? "收起右栏" : "展开右栏"} onClick={() => setRightOpen(!rightOpen)}>
+              <PanelRight className={cn("h-4 w-4", !rightOpen && "opacity-50")} />
+            </IconBtn>
+          </div>
+          <div className="ml-[14px] flex items-center gap-2">
+            <button aria-label="撤销" title="撤销"
+              disabled={undoStack.current.length === 0 && snapTimer.current == null} onClick={undo}
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground disabled:opacity-40">
+              <Undo2 className="h-4 w-4" />
+            </button>
+            <button aria-label="重做" title="重做" disabled={redoStack.current.length === 0} onClick={redo}
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground disabled:opacity-40">
+              <Redo2 className="h-4 w-4" />
+            </button>
+            <button onClick={() => setImportOpen(true)}
+              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
+              <Upload className="h-4 w-4" /><span className="pl-1">导入</span>
+            </button>
+            <button onClick={() => printRef.current()}
+              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
+              <Download className="h-4 w-4" /><span className="pl-1">下载</span>
+            </button>
+            <button disabled={saving || !dirty || conflict} onClick={() => void saveNow()}
+              className="flex h-8 w-[70px] items-center rounded-[8px] bg-primary pl-2.5 text-[14px] text-primary-foreground disabled:opacity-50">
+              <Save className="h-4 w-4" /><span className="pl-1">保存</span>
+            </button>
+          </div>
+        </div>
+      </header>
 
       {conflict && (
         <Alert tone="red" className="mx-4 mt-3 shrink-0">
@@ -161,10 +297,40 @@ export function EditorPage() {
         </Alert>
       )}
 
-      {/* 步骤内容 */}
-      {step === "diagnose" && <DiagnoseView onImport={() => setImportOpen(true)} />}
-      {step === "optimize" && <OptimizeView />}
-      {step === "export" && <ExportView key={hydrationKey} />}
+      {/* ===== 三栏 ===== */}
+      <div className="flex min-h-0 flex-1">
+        {leftOpen && (
+          <aside className="flex w-[360px] shrink-0 flex-col border-r border-border bg-background">
+            <PanelBar title={mode === "layout" ? "模板" : "编辑简历"}>
+              <IconBtn label="收起" onClick={() => setLeftOpen(false)}><X className="h-4 w-4" /></IconBtn>
+            </PanelBar>
+            {mode === "layout"
+              ? <TemplatesPanel />
+              : <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto"><SectionEditor /></div>}
+          </aside>
+        )}
+
+        <PreviewCanvas device={device} showPolish={mode === "diagnose"}
+          onPolish={() => { setRightView("polish"); setRightOpen(true); }}
+          onImport={() => setImportOpen(true)} printApi={printApi} />
+
+        {rightOpen && (
+          <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-background">
+            <PanelBar title={rightTitle}>
+              {mode === "diagnose" && rightView === "polish" && (
+                <IconBtn label="回到诊断" onClick={() => setRightView("diagnose")}><History className="h-4 w-4 rotate-180" /></IconBtn>
+              )}
+              {mode === "diagnose" && rightView === "diagnose" && (
+                <IconBtn label="历史版本" onClick={openHistory}><History className="h-4 w-4" /></IconBtn>
+              )}
+              <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
+            </PanelBar>
+            {mode === "layout"
+              ? <StylePanel device={device} setDevice={setDevice} onExport={() => printRef.current()} />
+              : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel />}
+          </aside>
+        )}
+      </div>
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 

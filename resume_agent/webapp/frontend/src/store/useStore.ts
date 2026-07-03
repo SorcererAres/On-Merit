@@ -23,6 +23,15 @@ interface Saved {
   layoutSettings?: Partial<LayoutSettings> | null; layoutSeqAtSave: number;
 }
 
+/** undo/redo 快照：文档级可编辑字段 + 原件语境（sourceText/warnings/usedOcr——
+ * 撤销「导入」必须连原件一起回退，否则原件栏与简历内容错配）。
+ * 不含诊断/润色结果——恢复时按失效规则清空。 */
+export interface Snapshot {
+  resume: Resume | null; title: string; jd: string; role: string;
+  layoutSettings: LayoutSettings;
+  sourceText: string | null; warnings: Warning[]; usedOcr: boolean;
+}
+
 interface State {
   resume: Resume | null;
   warnings: Warning[];
@@ -57,6 +66,7 @@ interface State {
   setDiagnosis: (d: Diagnosis) => void;
   applyResume: (r: Resume) => void;
   setImprove: (changes: Change[], notes: string[], supplements: string[]) => void;
+  restoreSnapshot: (snap: Snapshot) => void;
   loadRecord: (rec: ResumeRecord) => void;
   markSaved: (saved: Saved) => void;
   setConflict: () => void;
@@ -95,6 +105,18 @@ export const useStore = create<State>((set) => ({
 
   setDiagnosis: (d) => set({ diagnosis: d }),
   setImprove: (changes, notes, supplements) => set({ improve: { changes, notes, supplements } }),
+  // undo/redo 恢复：等价一次外部替换（bump + 重挂编辑列 + 失效诊断/润色）；
+  // layoutSeq 同步推进（快照可能带不同样式，需按「此后未再改」语义参与保存回写判定）；
+  // 原件语境（sourceText/warnings/usedOcr）随快照恢复——撤销导入时原件栏同步回退。
+  restoreSnapshot: (snap) => set((s) => ({
+    resume: snap.resume, title: snap.title, jd: snap.jd, role: snap.role,
+    layoutSettings: snap.layoutSettings,
+    sourceText: snap.sourceText, warnings: snap.warnings, usedOcr: snap.usedOcr,
+    linkQuery: null,
+    diagnosis: null, improve: null,
+    editSeq: s.editSeq + 1, layoutSeq: s.editSeq + 1, dirty: true,
+    hydrationKey: s.hydrationKey + 1,
+  })),
 
   loadRecord: (rec) => set((s) => ({
     resumeId: rec.id, version: rec.version, title: rec.title,

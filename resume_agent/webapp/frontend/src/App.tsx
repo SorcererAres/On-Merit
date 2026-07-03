@@ -2,14 +2,13 @@ import { useState } from "react";
 import { createBrowserRouter, RouterProvider, Outlet, Navigate, Link, useParams } from "react-router-dom";
 import { Dashboard } from "@/pages/Dashboard";
 import { EditorPage } from "@/pages/EditorPage";
-import { DiagnoseV3 } from "@/pages/DiagnoseV3";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 
 // key={id} 强制重挂：切到另一份简历时干净重建编辑态（见 frontend-wysiwyg-editor.md §五）
 function EditorRoute() { const { id } = useParams(); return <EditorPage key={id} />; }
 // 退役 /preview/:id：排版并入外壳的 export 步（共用同一 load/autosave），旧链接重定向
-function PreviewRedirect() { const { id } = useParams(); return <Navigate to={`/editor/${id}?step=export`} replace />; }
+function PreviewRedirect() { const { id } = useParams(); return <Navigate to={`/editor/${id}?mode=layout`} replace />; }
 
 function Layout() {
   const [dark, setDark] = useState(false);
@@ -31,14 +30,13 @@ function Layout() {
 
 // 数据路由（useBlocker 需要它）
 const router = createBrowserRouter([
-  // 设计稿 1:1 静态还原（Figma All-IN-AI 835:164），自带全局顶栏，故放 Layout 外
-  { path: "/v3", element: <DiagnoseV3 /> },
+  // 编辑器 v3 外壳自带全局顶栏，放 Layout 外（Dashboard 仍走 Layout）
+  { path: "/editor/:id", element: <EditorRoute /> },
+  { path: "/preview/:id", element: <PreviewRedirect /> },
   {
     element: <Layout />,
     children: [
       { path: "/", element: <Dashboard /> },
-      { path: "/editor/:id", element: <EditorRoute /> },
-      { path: "/preview/:id", element: <PreviewRedirect /> },
       { path: "*", element: <Navigate to="/" replace /> },
     ],
   },

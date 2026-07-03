@@ -1,0 +1,179 @@
+// 中栏 · 预览画布：标题栏（预览/原件 tab + AI 润色）+ A4 实时渲染（resumeDoc + --fit 自适应）。
+// data/layout 一变即 150ms 防抖重渲；空白简历 → 居中导入 CTA（诚实口径：只重述不编造）。
+// printApi：把 iframe 打印函数上抛给顶栏「下载」。
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "@/store/useStore";
+import { resumeToMarkdown } from "@/lib/resumeToMarkdown";
+import { markdownToDoc } from "@/lib/resumeDoc";
+import { SourcePanel } from "./SourcePanel";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/cn";
+import { Eye, FileText, FileUp, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import type { Resume } from "@/types";
+
+// 空白：basics 无实质字段且各段落均无含实值条目（沿用诊断视图的判定）
+function hasVal(v: unknown): boolean {
+  if (v == null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (Array.isArray(v)) return v.some(hasVal);
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).some(hasVal);
+  return true;
+}
+export function isBlankResume(r: Resume | null): boolean {
+  if (!r) return true;
+  const b = r.basics || {};
+  const basicsHas = [b.name, b.email, b.phone, b.summary, b.url].some((x) => !!x?.trim?.());
+  return !basicsHas && !hasVal(r.work) && !hasVal(r.projects) && !hasVal(r.education) && !hasVal(r.skills);
+}
+
+export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi }: {
+  device: "desktop" | "mobile";
+  showPolish: boolean;              // 仅诊断模式显示「AI 润色」
+  onPolish: () => void;
+  onImport: () => void;
+  printApi: (fn: () => void) => void;   // 上抛打印函数（顶栏「下载」/样式面板「导出 PDF」共用）
+}) {
+  const resume = useStore((s) => s.resume);
+  const layout = useStore((s) => s.layoutSettings);
+  const sourceText = useStore((s) => s.sourceText);
+  const [tab, setTab] = useState<"preview" | "source">("preview");
+  const [doc, setDoc] = useState("");
+  const [docKey, setDocKey] = useState(0);  // 内容变化即重挂 iframe：加载标记随实例失效，杜绝「同实例新导航」误判
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const docRef = useRef(doc); docRef.current = doc;
+  const tabRef = useRef(tab); tabRef.current = tab;
+  const loadedDocRef = useRef("");          // 最近一次 iframe load 完成时对应的 doc（打印新鲜度判据）
+  const loadedFrameRef = useRef<HTMLIFrameElement | null>(null);  // 该 load 所属实例——重挂后旧值失效
+  const pendingPrint = useRef<string | null>(null);   // 待打印的目标 doc；null=无 pending
+  const name = useMemo(() => resume?.basics?.name || "简历", [resume]);
+  const blank = isBlankResume(resume);
+
+  // 排版模式（showPolish=false）不提供原件对照：强制收回预览，避免样式调整不可见、导出落空
+  useEffect(() => { if (!showPolish && tab === "source") setTab("preview"); }, [showPolish, tab]);
+
+  // data + layout → 防抖重渲；内容真变才导航（setDoc+bump key 重挂），空白时顺带取消待打印
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const next = resume && !blank ? markdownToDoc(resumeToMarkdown(resume, "zh"), name, layout) : "";
+      if (!next) pendingPrint.current = null;
+      if (next !== docRef.current) { setDoc(next); setDocKey((k) => k + 1); }
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [resume, name, layout, blank]);
+
+  // --fit 按 iframe 实际容器宽（手机=390px 内层，桌面=工作区宽），而非外层工作区
+  const fit = () => {
+    const idoc = iframeRef.current?.contentDocument;
+    const inner = innerRef.current;
+    if (!idoc?.documentElement || !inner) return;
+    const scale = Math.max(0.3, Math.min(1, (inner.clientWidth - 32) / 794));
+    idoc.documentElement.style.setProperty("--fit", String(scale));
+  };
+  useEffect(() => {
+    const t = window.setTimeout(fit, 0);   // 布局提交后主动 fit（device/tab 切换即刻生效，不依赖 RO 派发）
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === "undefined") return () => window.clearTimeout(t);
+    const ro = new ResizeObserver(fit); ro.observe(wrap);   // 窗口/面板拖拽兜底
+    if (innerRef.current) ro.observe(innerRef.current);
+    return () => { window.clearTimeout(t); ro.disconnect(); };
+  }, [device, tab, blank]);
+
+  const printNow = () => {
+    const win = iframeRef.current?.contentWindow;
+    const idoc = iframeRef.current?.contentDocument;
+    if (!win) return;
+    const go = () => win.print();
+    if (idoc && (idoc as any).fonts?.ready) (idoc as any).fonts.ready.then(go).catch(go);
+    else go();
+  };
+  // 打印（顶栏「下载」与样式面板「导出 PDF」都走这里）：
+  // 空白 → 提示；仅当「目标内容已完成 iframe load」（fresh === loadedDocRef）才直接打印；
+  // 其余（防抖窗口内容未渲/正在加载/原件 tab 需重挂）一律 pendingPrint + onLoad 后打印。
+  useEffect(() => {
+    printApi(() => {
+      const s = useStore.getState();
+      if (isBlankResume(s.resume)) { toast.error("简历还是空的，请先导入或填写内容"); return; }
+      const fresh = markdownToDoc(resumeToMarkdown(s.resume!, "zh"),
+        s.resume!.basics?.name || "简历", s.layoutSettings);
+      const needsRemount = tabRef.current === "source";
+      // 直接打印仅当：无需重挂 + 目标内容已完成 load + 且是「当前这只 iframe」完成的
+      //（内容一变就换 key 重挂 → 旧实例的加载标记天然失效，无「同实例新导航」窗口）
+      const ready = !needsRemount && fresh === loadedDocRef.current
+        && loadedFrameRef.current !== null && loadedFrameRef.current === iframeRef.current;
+      if (ready) { printNow(); return; }
+      pendingPrint.current = fresh;
+      if (needsRemount) setTab("preview");
+      if (fresh !== docRef.current) { setDoc(fresh); setDocKey((k) => k + 1); }
+      // fresh === doc 时为在途 load（未完成），等 onFrameLoad 消费 pending
+    });
+  }, [printApi]);
+  const onFrameLoad = () => {
+    loadedDocRef.current = docRef.current;  // 该 load 对应当前已提交的 srcDoc（key 保证一实例一文档）
+    loadedFrameRef.current = iframeRef.current;
+    fit();
+    if (pendingPrint.current === null) return;
+    // 消费前对照 store 最新：加载的若非最新版则继续刷新，绝不打印过期内容
+    const s = useStore.getState();
+    const cur = s.resume && !isBlankResume(s.resume)
+      ? markdownToDoc(resumeToMarkdown(s.resume, "zh"), s.resume.basics?.name || "简历", s.layoutSettings) : "";
+    if (!cur) { pendingPrint.current = null; return; }          // 已变空白：取消打印
+    if (docRef.current === cur) { pendingPrint.current = null; printNow(); }
+    else { pendingPrint.current = cur; setDoc(cur); setDocKey((k) => k + 1); }
+  };
+
+  const tabCls = (t: "preview" | "source") => cn(
+    "flex h-6 items-center gap-1 rounded-[6px] px-1.5 text-[12px] leading-6",
+    tab === t ? "text-foreground" : "text-muted-foreground hover:text-foreground");
+
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      {/* 标题栏 */}
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-background pl-4 pr-4">
+        <div className="flex items-center gap-1">
+          <button className={tabCls("preview")} onClick={() => setTab("preview")} aria-pressed={tab === "preview"}>
+            <Eye className="h-4 w-4" /> 预览
+          </button>
+          {sourceText && showPolish && (   /* 原件对照仅诊断模式提供；排版模式隐藏（配合上方强制收回） */
+            <button className={tabCls("source")} onClick={() => setTab("source")} aria-pressed={tab === "source"}>
+              <FileText className="h-4 w-4" /> 原件
+            </button>
+          )}
+        </div>
+        {showPolish && (
+          <button onClick={onPolish}
+            className="flex h-7 items-center gap-1 rounded-full border border-border px-[11px] text-[13px] leading-6 text-foreground hover:bg-accent/40">
+            <Sparkles className="h-3.5 w-3.5" /> AI 润色
+          </button>
+        )}
+      </div>
+
+      {/* 画布 */}
+      {tab === "source" && sourceText ? (
+        <div className="min-h-0 flex-1 bg-background"><SourcePanel /></div>
+      ) : blank ? (
+        <div className="anim-in flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-muted p-8 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border text-muted-foreground">
+            <FileUp className="h-7 w-7" />
+          </div>
+          <div>
+            <div className="text-heading-20">先导入你的简历</div>
+            <p className="mt-1 max-w-sm text-copy-14 text-muted-foreground">
+              上传 PDF / 图片（自动 OCR）或粘贴文本。我们只重述你已写下的经历，不编造事实。
+            </p>
+          </div>
+          <Button onClick={onImport}><FileUp className="h-4 w-4" /> 导入简历</Button>
+        </div>
+      ) : (
+        <div ref={wrapRef} className={cn("min-h-0 flex-1 overflow-auto bg-muted", device === "mobile" && "flex justify-center")}>
+          <div ref={innerRef} className={device === "mobile" ? "w-[390px] shrink-0" : "w-full"}>
+            <iframe key={docKey} ref={iframeRef} title="简历预览" sandbox="allow-same-origin allow-modals"
+              srcDoc={doc} onLoad={onFrameLoad} className="h-full min-h-[70vh] w-full border-0 bg-transparent" />
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
