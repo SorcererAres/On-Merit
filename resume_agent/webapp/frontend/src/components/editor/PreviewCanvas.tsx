@@ -3,8 +3,7 @@
 // printApi：把 iframe 打印函数上抛给顶栏「下载」。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/store/useStore";
-import { resumeToMarkdown } from "@/lib/resumeToMarkdown";
-import { markdownToDoc } from "@/lib/resumeDoc";
+import { resumeToDoc } from "@/lib/resumeDoc";
 import { SourcePanel } from "./SourcePanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -128,7 +127,6 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
   const loadedDocRef = useRef("");          // 最近一次 iframe load 完成时对应的 doc（打印新鲜度判据）
   const loadedFrameRef = useRef<HTMLIFrameElement | null>(null);  // 该 load 所属实例——重挂后旧值失效
   const pendingPrint = useRef<string | null>(null);   // 待打印的目标 doc；null=无 pending
-  const name = useMemo(() => resume?.basics?.name || "简历", [resume]);
   const blank = isBlankResume(resume);
 
   // 排版模式（showPolish=false）不提供原件对照：强制收回预览，避免样式调整不可见、导出落空
@@ -137,12 +135,12 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
   // data + layout → 防抖重渲；内容真变才导航（setDoc+bump key 重挂），空白时顺带取消待打印
   useEffect(() => {
     const id = window.setTimeout(() => {
-      const next = resume && !blank ? markdownToDoc(resumeToMarkdown(resume, "zh"), name, layout) : "";
+      const next = resume && !blank ? resumeToDoc(resume, layout) : "";
       if (!next) pendingPrint.current = null;
       if (next !== docRef.current) { setDoc(next); setDocKey((k) => k + 1); }
     }, 150);
     return () => window.clearTimeout(id);
-  }, [resume, name, layout, blank]);
+  }, [resume, layout, blank]);
 
   // 缩放：'fit' 按 iframe 实际容器宽自适应（手机=390px 内层，桌面=工作区宽）；数值=手动倍率。
   // 设定后把 iframe 高度同步为文档内容高：滚动全交给外层画布（单一连续灰底、单一滚动条）。
@@ -190,8 +188,7 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
     printApi(() => {
       const s = useStore.getState();
       if (isBlankResume(s.resume)) { toast.error("简历还是空的，请先导入或填写内容"); return; }
-      const fresh = markdownToDoc(resumeToMarkdown(s.resume!, "zh"),
-        s.resume!.basics?.name || "简历", s.layoutSettings);
+      const fresh = resumeToDoc(s.resume!, s.layoutSettings);
       const needsRemount = tabRef.current === "source";
       // 直接打印仅当：无需重挂 + 目标内容已完成 load + 且是「当前这只 iframe」完成的
       //（内容一变就换 key 重挂 → 旧实例的加载标记天然失效，无「同实例新导航」窗口）
@@ -214,8 +211,7 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
     if (pendingPrint.current === null) return;
     // 消费前对照 store 最新：加载的若非最新版则继续刷新，绝不打印过期内容
     const s = useStore.getState();
-    const cur = s.resume && !isBlankResume(s.resume)
-      ? markdownToDoc(resumeToMarkdown(s.resume, "zh"), s.resume.basics?.name || "简历", s.layoutSettings) : "";
+    const cur = s.resume && !isBlankResume(s.resume) ? resumeToDoc(s.resume, s.layoutSettings) : "";
     if (!cur) { pendingPrint.current = null; return; }          // 已变空白：取消打印
     if (docRef.current === cur) { pendingPrint.current = null; printNow(); }
     else { pendingPrint.current = cur; setDoc(cur); setDocKey((k) => k + 1); }

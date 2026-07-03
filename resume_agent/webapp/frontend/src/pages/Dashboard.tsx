@@ -5,8 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getJSON, postJSON, delJSON } from "@/lib/api";
-import { resumeToMarkdown } from "@/lib/resumeToMarkdown";
-import { markdownToDoc } from "@/lib/resumeDoc";
+import { resumeToDoc } from "@/lib/resumeDoc";
 import { DEFAULT_LAYOUT, type LayoutSettings } from "@/lib/templates";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
@@ -44,7 +43,7 @@ function loadThumb(id: string, cacheKey: string): Promise<string> {
   if (!p) {
     p = getJSON<ResumeRecord>(`/api/resumes/${id}`).then((rec) => {
       const layout = { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) } as LayoutSettings;
-      const d = markdownToDoc(resumeToMarkdown(rec.data, "zh"), rec.title, layout);
+      const d = resumeToDoc(rec.data, layout);
       for (const k of _thumbCache.keys()) { if (k.startsWith(`${id}:`)) _thumbCache.delete(k); }
       _thumbCache.set(cacheKey, d);
       return d;

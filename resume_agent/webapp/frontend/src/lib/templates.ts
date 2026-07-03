@@ -42,7 +42,9 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 .cv-head{margin-bottom:20px;}
 .cv-head h1{font-size:calc(30px * var(--fs));font-weight:700;line-height:1.15;margin:0;letter-spacing:-.01em;}
 .cv-tagline{margin:6px 0 0;font-size:calc(15px * var(--fs));font-weight:500;}
+.cv-subline{margin:6px 0 0;font-size:calc(12.5px * var(--fs));color:var(--muted);}
 .cv-contact{margin:8px 0 0;font-size:calc(12.5px * var(--fs));color:var(--muted);}
+.cv-tags{margin:8px 0 0;font-size:calc(12px * var(--fs));color:var(--accent);}
 .page h2{font-size:calc(15px * var(--fs));font-weight:700;margin:22px 0 12px;padding-bottom:6px;
   border-bottom:1px solid var(--line);}
 .page h3{font-size:calc(14px * var(--fs));font-weight:700;margin:14px 0 4px;}
