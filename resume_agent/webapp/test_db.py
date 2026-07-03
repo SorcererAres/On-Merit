@@ -247,7 +247,12 @@ def test_reports_roundtrip_and_trim():
     lst2 = r.list_reports(rid)
     assert len(lst2) == MAX_REPORTS
     assert lst2[0]["score"] == float(MAX_REPORTS + 4)   # 最新在前
-    print("OK: 报告 存/列/取 + 上限裁剪")
+    # 画廊列表带最新报告分；无报告的简历为 None
+    other = r.create("无报告", "engineer", data={"basics": {"name": "X"}})
+    metas = {m["id"]: m for m in r.list()}
+    assert metas[rid]["latest_score"] == float(MAX_REPORTS + 4)
+    assert metas[other["id"]]["latest_score"] is None
+    print("OK: 报告 存/列/取 + 上限裁剪 + list 带最新分")
 
 
 def test_reports_notfound_and_cascade():

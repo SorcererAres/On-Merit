@@ -143,10 +143,14 @@ class SqliteRepo:
 
     # --- 读 ---
     def list(self) -> List[Dict[str, Any]]:
+        """元数据列表 + 每份简历最新一次诊断报告分（无报告为 None）——画廊评分/草稿·已完成筛选用。"""
         conn = self._connect()
         try:
             rows = conn.execute(
-                "SELECT id,title,role,version,updated_at FROM resumes ORDER BY updated_at DESC").fetchall()
+                "SELECT r.id,r.title,r.role,r.version,r.updated_at,"
+                " (SELECT d.score FROM diagnosis_reports d WHERE d.resume_id=r.id"
+                "  ORDER BY d.created_at DESC, d.rowid DESC LIMIT 1) AS latest_score"
+                " FROM resumes r ORDER BY r.updated_at DESC").fetchall()
             return [dict(r) for r in rows]
         finally:
             conn.close()
