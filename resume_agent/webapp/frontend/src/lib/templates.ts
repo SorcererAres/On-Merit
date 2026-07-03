@@ -33,9 +33,11 @@ const BASE = `
 *{box-sizing:border-box;} html,body{margin:0;padding:0;}
 body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiased;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
-.canvas{display:flex;justify-content:center;align-items:flex-start;padding:24px;min-height:100vh;}
+/* 纵向多页画布（预览由外层分页器把内容切成多张 A4 .page）；单页时视觉与旧版一致 */
+.canvas{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px;min-height:100vh;}
 .page{ background:var(--paper); width:794px; min-height:1123px; padding:56px 64px;
   box-shadow:0 2px 12px rgba(0,0,0,.16); position:relative; zoom:var(--fit,1);
+  overflow:hidden; /* 屏幕分页后单元超高时不压下页；打印媒体重置为 visible */
   font-size:calc(14px * var(--fs)); line-height:var(--lh); }
 .cv-head{margin-bottom:20px;}
 .cv-head h1{font-size:calc(30px * var(--fs));font-weight:700;line-height:1.15;margin:0;letter-spacing:-.01em;}
@@ -56,8 +58,9 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 .page th{font-weight:700;color:var(--muted);font-size:calc(12px * var(--fs));text-transform:uppercase;letter-spacing:.04em;}
 .page blockquote{margin:10px 0;padding:4px 14px;border-left:3px solid var(--accent);color:var(--muted);}
 .page > *:first-child{margin-top:0;}
-@media print{ :root{--fit:1 !important;} body{background:#fff;} .canvas{padding:0;display:block;}
-  .page{zoom:1;width:auto;min-height:auto;box-shadow:none;padding:0;} .page h2{break-after:avoid;}
+@media print{ :root{--fit:1 !important;} body{background:#fff;} .canvas{padding:0;display:block;gap:0;}
+  /* 屏幕分页的多张 .page 在打印时摊平为连续流，由浏览器按 @page 原生分页（导出以此为准） */
+  .page{zoom:1;width:auto;min-height:auto;box-shadow:none;padding:0;overflow:visible;} .page h2{break-after:avoid;}
   .page li,.page tr{break-inside:avoid;} a{color:var(--ink,#1a1a1a);} }
 @page{size:A4;margin:16mm 14mm;}
 `;

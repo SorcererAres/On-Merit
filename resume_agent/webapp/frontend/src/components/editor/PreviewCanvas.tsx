@@ -8,9 +8,87 @@ import { markdownToDoc } from "@/lib/resumeDoc";
 import { SourcePanel } from "./SourcePanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { Eye, FileText, FileUp, Sparkles } from "lucide-react";
+import { Eye, FileText, FileUp, Sparkles, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import type { Resume } from "@/types";
+
+// ---- A4 屏幕分页器 ----
+// 由父页面直接操作 iframe 文档（不开 allow-scripts，避免给用户内容开脚本面）：
+// 在原始单页布局中差分测量各内容块高度，按 A4 可用高分组重建多张 .page。
+// 规则：列表按 li 拆分（跨页克隆列表容器）、标题不落页尾、超高单元独占一页（overflow:hidden 截断）。
+// 打印不走此分页：print CSS 将多页摊平为连续流，由浏览器按 @page 原生分页（导出以此为准）。
+const A4_HEIGHT = 1123;                    // A4 @96dpi px 高（与 .page min-height 一致）
+function paginate(idoc: Document) {
+  const canvas = idoc.querySelector(".canvas");
+  const first = idoc.querySelector<HTMLElement>(".page");
+  const win = idoc.defaultView;
+  if (!canvas || !first || !win || idoc.querySelectorAll(".page").length > 1) return;
+  const cs = win.getComputedStyle(first);
+  const cap = A4_HEIGHT - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  if (!(cap > 0)) return;
+
+  // 展平为可分配单元：.page 直接子元素；ul/ol 拆成 li（记录容器模板以便跨页克隆）
+  interface Unit { el: HTMLElement; listTpl?: HTMLElement }
+  const units: Unit[] = [];
+  for (const child of Array.from(first.children) as HTMLElement[]) {
+    if ((child.tagName === "UL" || child.tagName === "OL") && child.children.length > 1) {
+      for (const li of Array.from(child.children) as HTMLElement[]) units.push({ el: li, listTpl: child });
+    } else units.push({ el: child });
+  }
+  if (units.length < 2) return;
+
+  // 差分测量（含 margin/collapse）：单元高 = 下一单元 top − 本单元 top；末尾用自身 bottom
+  const tops = units.map((u) => u.el.getBoundingClientRect().top);
+  const heights = units.map((u, i) =>
+    i < units.length - 1 ? tops[i + 1] - tops[i] : u.el.getBoundingClientRect().bottom - tops[i]);
+
+  // 分组装页
+  // keep-with-next：H1-3，以及「以 <strong> 开头的段落」（resumeToMarkdown 的职位/学校标题行格式）
+  // ——这类单元不许孤悬页尾，与后文一起挪入下页。
+  const keepWithNext = (el: HTMLElement) =>
+    /^H[123]$/.test(el.tagName) ||
+    (el.tagName === "P" && el.firstElementChild?.tagName === "STRONG");
+  const pages: Unit[][] = [[]];
+  let used = 0;
+  units.forEach((u, i) => {
+    const cur = pages[pages.length - 1];
+    if (cur.length && used + heights[i] > cap) { pages.push([u]); used = heights[i]; return; }
+    cur.push(u); used += heights[i];
+  });
+  for (let p = 0; p < pages.length; p++) {
+    const pg = pages[p];
+    while (pg.length > 1 && keepWithNext(pg[pg.length - 1].el)) {
+      const moved = pg.pop()!;
+      if (!pages[p + 1]) pages.push([]);
+      pages[p + 1].unshift(moved);
+    }
+  }
+  if (pages.filter((p) => p.length).length < 2) return;   // 实际单页则不动
+
+  // 重建 DOM：单元为「移动」而非克隆（原 first 最后整体移除）
+  const frag = idoc.createDocumentFragment();
+  for (const pgUnits of pages) {
+    if (!pgUnits.length) continue;
+    const pg = first.cloneNode(false) as HTMLElement;
+    let curList: HTMLElement | null = null;
+    let curTpl: HTMLElement | null = null;
+    for (const u of pgUnits) {
+      if (u.listTpl) {
+        if (!curList || curTpl !== u.listTpl) {
+          curList = u.listTpl.cloneNode(false) as HTMLElement;
+          curTpl = u.listTpl;
+          pg.appendChild(curList);
+        }
+        curList.appendChild(u.el);
+      } else { curList = null; curTpl = null; pg.appendChild(u.el); }
+    }
+    frag.appendChild(pg);
+  }
+  first.remove();
+  canvas.appendChild(frag);
+}
+
+const ZOOM_MIN = 0.5, ZOOM_MAX = 2, ZOOM_STEP = 0.25;
 
 // 空白：basics 无实质字段且各段落均无含实值条目（沿用诊断视图的判定）
 function hasVal(v: unknown): boolean {
@@ -40,6 +118,8 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [doc, setDoc] = useState("");
   const [docKey, setDocKey] = useState(0);  // 内容变化即重挂 iframe：加载标记随实例失效，杜绝「同实例新导航」误判
+  const [zoom, setZoom] = useState<"fit" | number>("fit");   // 'fit'=适应宽度；数值=手动缩放（0.5–2）
+  const autoFitRef = useRef(1);              // 最近一次「适应宽度」计算值（手动步进的起点）
   const wrapRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -64,15 +144,17 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
     return () => window.clearTimeout(id);
   }, [resume, name, layout, blank]);
 
-  // --fit 按 iframe 实际容器宽（手机=390px 内层，桌面=工作区宽），而非外层工作区。
-  // 设定后把 iframe 高度同步为文档内容高：滚动全交给外层画布（单一连续灰底、单一滚动条），
-  // 消除「iframe 内滚 + 外层再垫一段死灰」的断层（纸尾之下只剩 24px 画布边距）。
-  const fit = () => {
+  // 缩放：'fit' 按 iframe 实际容器宽自适应（手机=390px 内层，桌面=工作区宽）；数值=手动倍率。
+  // 设定后把 iframe 高度同步为文档内容高：滚动全交给外层画布（单一连续灰底、单一滚动条）。
+  const zoomRef = useRef(zoom); zoomRef.current = zoom;
+  const applyZoom = () => {
     const iframe = iframeRef.current;
     const idoc = iframe?.contentDocument;
     const inner = innerRef.current;
     if (!iframe || !idoc?.documentElement || !inner) return;
-    const scale = Math.max(0.3, Math.min(1, (inner.clientWidth - 32) / 794));
+    autoFitRef.current = Math.max(0.3, Math.min(1, (inner.clientWidth - 32) / 794));
+    const z = zoomRef.current;
+    const scale = z === "fit" ? autoFitRef.current : z;
     idoc.documentElement.style.setProperty("--fit", String(scale));
     // 先压 0 再量：doc 内 .canvas{min-height:100vh} 以 iframe 高为 vh 基准，
     // 不压会自指棘轮（内容变矮时 scrollHeight 被旧 vh 撑住回不去）。同帧读写无闪烁。
@@ -80,13 +162,18 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
     iframe.style.height = `${idoc.documentElement.scrollHeight}px`;
   };
   useEffect(() => {
-    const t = window.setTimeout(fit, 0);   // 布局提交后主动 fit（device/tab 切换即刻生效，不依赖 RO 派发）
+    const t = window.setTimeout(applyZoom, 0);   // 布局提交后主动应用（device/tab/zoom 切换即刻生效）
     const wrap = wrapRef.current;
     if (!wrap || typeof ResizeObserver === "undefined") return () => window.clearTimeout(t);
-    const ro = new ResizeObserver(fit); ro.observe(wrap);   // 窗口/面板拖拽兜底
+    const ro = new ResizeObserver(applyZoom); ro.observe(wrap);   // 窗口/面板拖拽兜底
     if (innerRef.current) ro.observe(innerRef.current);
     return () => { window.clearTimeout(t); ro.disconnect(); };
-  }, [device, tab, blank]);
+  }, [device, tab, blank, zoom]);
+  const clampZoom = (v: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, v));
+  const stepZoom = (dir: 1 | -1) => setZoom((z) => {
+    const base = z === "fit" ? autoFitRef.current : z;
+    return clampZoom(Math.round((base + dir * ZOOM_STEP) / ZOOM_STEP) * ZOOM_STEP);
+  });
 
   const printNow = () => {
     const win = iframeRef.current?.contentWindow;
@@ -120,7 +207,10 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
   const onFrameLoad = () => {
     loadedDocRef.current = docRef.current;  // 该 load 对应当前已提交的 srcDoc（key 保证一实例一文档）
     loadedFrameRef.current = iframeRef.current;
-    fit();
+    // 先分页（zoom=1 的原始布局下测量最准），再应用缩放与高度同步
+    const idoc = iframeRef.current?.contentDocument;
+    if (idoc) { try { paginate(idoc); } catch { /* 分页失败退回单长页，不阻断预览 */ } }
+    applyZoom();
     if (pendingPrint.current === null) return;
     // 消费前对照 store 最新：加载的若非最新版则继续刷新，绝不打印过期内容
     const s = useStore.getState();
@@ -149,12 +239,32 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
             </button>
           )}
         </div>
-        {showPolish && (
-          <button onClick={onPolish}
-            className="flex h-7 items-center gap-1 rounded-full border border-border px-[11px] text-[13px] leading-6 text-foreground hover:bg-accent/40">
-            <Sparkles className="h-3.5 w-3.5" /> AI 润色
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* 缩放：− / 倍率（点击回「适应」）/ +；仅预览 tab 有意义 */}
+          {tab === "preview" && !blank && (
+            <div className="flex items-center gap-0.5">
+              <button aria-label="缩小" onClick={() => stepZoom(-1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground">
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button aria-label="缩放倍率（点击恢复适应宽度）" title="点击恢复适应宽度"
+                onClick={() => setZoom("fit")}
+                className="min-w-[44px] rounded px-1 text-center text-[12px] leading-6 text-muted-foreground hover:text-foreground">
+                {zoom === "fit" ? "适应" : `${Math.round(zoom * 100)}%`}
+              </button>
+              <button aria-label="放大" onClick={() => stepZoom(1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground">
+                <ZoomIn className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          {showPolish && (
+            <button onClick={onPolish}
+              className="flex h-7 items-center gap-1 rounded-full border border-border px-[11px] text-[13px] leading-6 text-foreground hover:bg-accent/40">
+              <Sparkles className="h-3.5 w-3.5" /> AI 润色
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 画布 */}
