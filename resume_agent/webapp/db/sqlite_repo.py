@@ -31,16 +31,28 @@ _SCHEMA = [
         note TEXT NOT NULL, created_at TEXT NOT NULL)""",
     "CREATE INDEX IF NOT EXISTS idx_resumes_updated ON resumes(updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_rev_resume_created ON revisions(resume_id, created_at)",
+    """CREATE TABLE IF NOT EXISTS diagnosis_reports(
+        id TEXT PRIMARY KEY,
+        resume_id TEXT NOT NULL REFERENCES resumes(id) ON DELETE CASCADE,
+        role TEXT NOT NULL, role_label TEXT NOT NULL,
+        score REAL NOT NULL, max_score REAL NOT NULL,
+        has_jd INTEGER NOT NULL DEFAULT 0,
+        report TEXT NOT NULL,
+        created_at TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS idx_report_resume_created ON diagnosis_reports(resume_id, created_at)",
     "CREATE TABLE IF NOT EXISTS schema_version(v INTEGER NOT NULL)",
 ]
 
 SCHEMA_VERSION = 2
 
 # 老库补列（幂等）：新库 CREATE 已含这些列，_migrate 跳过；老库缺列则 ALTER 补上。
+# （diagnosis_reports 是整表新增，CREATE IF NOT EXISTS 天然幂等，无需列迁移。）
 _ADDED_COLS = {
     "resumes": [("source_text", "TEXT"), ("layout_settings", "TEXT")],
     "revisions": [("source_text", "TEXT"), ("layout_settings", "TEXT")],
 }
+
+MAX_REPORTS = 20  # 每简历诊断报告上限（超出裁剪最旧，同 MAX_REVISIONS 思路）
 
 
 def _now() -> str:
@@ -155,6 +167,55 @@ class SqliteRepo:
                 "SELECT id,note,created_at FROM revisions WHERE resume_id=? ORDER BY created_at DESC, rowid DESC",
                 (rid,)).fetchall()
             return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    # --- 诊断报告记录 ---
+    def add_report(self, rid: str, role: str, role_label: str, score: float,
+                   max_score: float, has_jd: bool, report: Dict[str, Any]) -> Dict[str, Any]:
+        """存一条诊断报告快照；超出 MAX_REPORTS 裁剪最旧。"""
+        pid, now = _uid(), _now()
+
+        def op(conn):
+            self._get_row(conn, rid)  # 简历不存在 → NotFound
+            conn.execute(
+                "INSERT INTO diagnosis_reports(id,resume_id,role,role_label,score,max_score,"
+                "has_jd,report,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (pid, rid, role, role_label, score, max_score, 1 if has_jd else 0,
+                 json.dumps(report, ensure_ascii=False), now))
+            conn.execute(
+                "DELETE FROM diagnosis_reports WHERE resume_id=? AND id NOT IN ("
+                " SELECT id FROM diagnosis_reports WHERE resume_id=?"
+                " ORDER BY created_at DESC, rowid DESC LIMIT ?)",
+                (rid, rid, MAX_REPORTS))
+            return {"id": pid, "created_at": now}
+        return self._write(op)
+
+    def list_reports(self, rid: str) -> List[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            if conn.execute("SELECT 1 FROM resumes WHERE id=?", (rid,)).fetchone() is None:
+                raise NotFound(f"简历不存在：{rid}")
+            rows = conn.execute(
+                "SELECT id,role,role_label,score,max_score,has_jd,created_at"
+                " FROM diagnosis_reports WHERE resume_id=?"
+                " ORDER BY created_at DESC, rowid DESC", (rid,)).fetchall()
+            return [{**dict(r), "has_jd": bool(r["has_jd"])} for r in rows]
+        finally:
+            conn.close()
+
+    def get_report(self, rid: str, report_id: str) -> Dict[str, Any]:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM diagnosis_reports WHERE id=? AND resume_id=?",
+                (report_id, rid)).fetchone()
+            if row is None:
+                raise NotFound(f"报告不存在或不属于该简历：{report_id}")
+            d = dict(row)
+            d["report"] = json.loads(d["report"])
+            d["has_jd"] = bool(d["has_jd"])
+            return d
         finally:
             conn.close()
 

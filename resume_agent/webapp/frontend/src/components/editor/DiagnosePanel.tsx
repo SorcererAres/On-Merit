@@ -40,8 +40,19 @@ export function DiagnosePanel() {
     const st = stamp();
     const r = await analyze.run();
     if (!r) return;
-    if (fresh(st)) setDiagnosis(r);
-    else toast.message("诊断期间简历有变更，结果已失效，请重新诊断");
+    if (fresh(st)) {
+      setDiagnosis(r);
+      // 存档一条只读报告快照（历史回顾用；失败不打扰——记录缺一条无碍诊断本身）
+      if (st.id) {
+        postJSON(`/api/resumes/${st.id}/reports`, {
+          role: useStore.getState().role,
+          role_label: r.evalResult.role_label,
+          score: r.evalResult.score, max: r.evalResult.max,
+          has_jd: !!r.match,
+          report: r,
+        }).catch(() => {});
+      }
+    } else toast.message("诊断期间简历有变更，结果已失效，请重新诊断");
   };
 
   return (

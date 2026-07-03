@@ -228,6 +228,55 @@ def test_migration_adds_columns():
     print("OK: 迁移补列（老库可读 + 可写新列）")
 
 
+def test_reports_roundtrip_and_trim():
+    from db.sqlite_repo import MAX_REPORTS
+    r = _repo()
+    rec = r.create("A", "designer", data={"basics": {"name": "A"}})
+    rid = rec["id"]
+    # 存 → 列 → 取
+    meta = r.add_report(rid, "designer", "产品/UX 设计师", 89.0, 120.0, True,
+                        {"evalResult": {"score": 89}, "match": {"summary": {"coverage_pct": 100}}})
+    lst = r.list_reports(rid)
+    assert len(lst) == 1 and lst[0]["id"] == meta["id"] and lst[0]["has_jd"] is True
+    assert "report" not in lst[0]                       # 列表只元数据
+    full = r.get_report(rid, meta["id"])
+    assert full["report"]["evalResult"]["score"] == 89 and full["role_label"] == "产品/UX 设计师"
+    # 裁剪：超上限只留最新 MAX_REPORTS 条
+    for i in range(MAX_REPORTS + 5):
+        r.add_report(rid, "designer", "L", float(i), 120.0, False, {"i": i})
+    lst2 = r.list_reports(rid)
+    assert len(lst2) == MAX_REPORTS
+    assert lst2[0]["score"] == float(MAX_REPORTS + 4)   # 最新在前
+    print("OK: 报告 存/列/取 + 上限裁剪")
+
+
+def test_reports_notfound_and_cascade():
+    r = _repo()
+    rec = r.create("B", "engineer", data={"basics": {"name": "B"}})
+    rid = rec["id"]
+    m = r.add_report(rid, "engineer", "工程师", 70.0, 120.0, False, {"x": 1})
+    # 404：无此简历 / 报告不属于该简历
+    try:
+        r.add_report("nope", "engineer", "工程师", 1, 2, False, {})
+        assert False
+    except NotFound:
+        pass
+    other = r.create("C", "engineer", data={"basics": {"name": "C"}})
+    try:
+        r.get_report(other["id"], m["id"])              # 跨简历取 → 404
+        assert False
+    except NotFound:
+        pass
+    # 级联删：删简历连报告一起删
+    r.delete(rid)
+    try:
+        r.list_reports(rid)
+        assert False
+    except NotFound:
+        pass
+    print("OK: 报告 404 边界 + 随简历级联删除")
+
+
 if __name__ == "__main__":
     test_crud_roundtrip()
     test_get_missing_404()
@@ -244,4 +293,6 @@ if __name__ == "__main__":
     test_content_change_keeps_source_layout_and_rollback()
     test_duplicate_copies_source_layout()
     test_migration_adds_columns()
+    test_reports_roundtrip_and_trim()
+    test_reports_notfound_and_cascade()
     print("\nALL PASS")

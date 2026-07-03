@@ -18,16 +18,24 @@ import { TemplatesPanel, StylePanel } from "@/components/editor/LayoutPanels";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/misc";
+import { ScoreCard } from "@/components/ScoreCard";
+import { MatchReportView } from "@/components/MatchReportView";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
+import type { Diagnosis } from "@/store/useStore";
 import {
-  ArrowLeft, PanelLeft, Columns2, PanelRight, Undo2, Redo2,
-  Upload, Download, Save, X, History, Check,
+  ArrowLeft, PanelLeft, Columns2, PanelRight,
+  Upload, Download, Save, X, History, FileClock, Check, ChevronLeft,
 } from "lucide-react";
 
 type Mode = "diagnose" | "layout";
 type RightView = "diagnose" | "polish";
 interface RevisionMeta { id: string; note: string; created_at: string }
+interface ReportMeta {
+  id: string; role: string; role_label: string;
+  score: number; max_score: number; has_jd: boolean; created_at: string;
+}
+interface ReportFull extends ReportMeta { report: Diagnosis }
 
 const UNDO_LIMIT = 50;
 const SNAP_DEBOUNCE = 600;
@@ -74,6 +82,9 @@ export function EditorPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
   const [revisions, setRevisions] = useState<RevisionMeta[] | null>(null);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reports, setReports] = useState<ReportMeta[] | null>(null);
+  const [reportView, setReportView] = useState<ReportFull | null>(null);   // 打开的单条报告快照
   const printRef = useRef<() => void>(() => {});
   const printApi = useCallback((fn: () => void) => { printRef.current = fn; }, []);
 
@@ -154,6 +165,8 @@ export function EditorPage() {
     restoreSnapshot(next);
     forceHist((n) => n + 1);
   };
+  const undoRef = useRef(undo); undoRef.current = undo;
+  const redoRef = useRef(redo); redoRef.current = redo;
 
   // ---- 守卫 ----
   useEffect(() => {
@@ -189,6 +202,31 @@ export function EditorPage() {
     useStore.setState({ version: latest.version, conflict: false });
     const ok = await saveNow();
     if (ok) toast.success("已用你的版本覆盖"); else toast.error("覆盖保存失败，请重试");
+  };
+
+  // ---- 键盘撤销/重做（顶栏图标位让给 版本记录/诊断记录，undo/redo 走 ⌘Z / ⇧⌘Z）----
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const t = e.target as HTMLElement;
+      // 表单控件内不接管：让浏览器做输入框自身的文本撤销，避免双重回退
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      e.preventDefault();
+      if (e.shiftKey) redoRef.current(); else undoRef.current();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
+
+  // ---- 诊断报告记录（只读历史快照；不做任何跨报告对比/涨分展示）----
+  const openReports = async () => {
+    setReportsOpen(true); setReports(null); setReportView(null);
+    try { setReports((await getJSON<{ reports: ReportMeta[] }>(`/api/resumes/${id}/reports`)).reports); }
+    catch (e) { toast.error((e as Error).message); setReportsOpen(false); }
+  };
+  const openReport = async (reportId: string) => {
+    try { setReportView(await getJSON<ReportFull>(`/api/resumes/${id}/reports/${reportId}`)); }
+    catch (e) { toast.error((e as Error).message); }
   };
 
   // ---- 历史版本 ----
@@ -262,14 +300,13 @@ export function EditorPage() {
             </IconBtn>
           </div>
           <div className="ml-[14px] flex items-center gap-2">
-            <button aria-label="撤销" title="撤销"
-              disabled={undoStack.current.length === 0 && snapTimer.current == null} onClick={undo}
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground disabled:opacity-40">
-              <Undo2 className="h-4 w-4" />
+            <button aria-label="版本记录" title="版本记录（内容变更自动快照，可回滚）" onClick={openHistory}
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground">
+              <History className="h-4 w-4" />
             </button>
-            <button aria-label="重做" title="重做" disabled={redoStack.current.length === 0} onClick={redo}
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground disabled:opacity-40">
-              <Redo2 className="h-4 w-4" />
+            <button aria-label="诊断报告记录" title="诊断报告记录（历次诊断的只读快照）" onClick={openReports}
+              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground">
+              <FileClock className="h-4 w-4" />
             </button>
             <button onClick={() => setImportOpen(true)}
               className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
@@ -321,7 +358,7 @@ export function EditorPage() {
                 <IconBtn label="回到诊断" onClick={() => setRightView("diagnose")}><History className="h-4 w-4 rotate-180" /></IconBtn>
               )}
               {mode === "diagnose" && rightView === "diagnose" && (
-                <IconBtn label="历史版本" onClick={openHistory}><History className="h-4 w-4" /></IconBtn>
+                <IconBtn label="诊断报告记录" onClick={openReports}><FileClock className="h-4 w-4" /></IconBtn>
               )}
               <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
             </PanelBar>
@@ -333,6 +370,70 @@ export function EditorPage() {
       </div>
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+
+      {reportsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setReportsOpen(false); }}>
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                {reportView && (
+                  <Button variant="ghost" aria-label="返回报告列表" onClick={() => setReportView(null)}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                )}
+                <h3 className="text-heading-20">{reportView ? "诊断报告" : "诊断报告记录"}</h3>
+              </div>
+              <Button variant="ghost" aria-label="关闭" onClick={() => setReportsOpen(false)}><X className="h-4 w-4" /></Button>
+            </div>
+
+            {!reportView && (
+              <>
+                {reports === null && <p className="text-copy-14 text-muted-foreground">加载中…</p>}
+                {reports?.length === 0 && (
+                  <p className="text-copy-14 text-muted-foreground">还没有诊断记录（右栏运行「诊断」后自动存档）。</p>
+                )}
+                <div className="min-h-0 overflow-y-auto">
+                  {reports?.map((r) => (
+                    <button key={r.id} onClick={() => openReport(r.id)}
+                      className="flex w-full items-center gap-3 border-b border-border py-2.5 text-left hover:bg-accent/30">
+                      <div className="flex-1">
+                        <div className="text-copy-14">
+                          {r.role_label} · {r.score}/{r.max_score}
+                          {r.has_jd && <span className="ml-2 text-label-12 text-muted-foreground">含 JD 覆盖度</span>}
+                        </div>
+                        <div className="text-label-12 text-muted-foreground">{new Date(r.created_at).toLocaleString()}</div>
+                      </div>
+                      <span className="text-label-12 text-muted-foreground">查看</span>
+                    </button>
+                  ))}
+                </div>
+                {(reports?.length ?? 0) > 0 && (
+                  <p className="mt-3 shrink-0 text-label-12 text-muted-foreground">
+                    各条报告基于当时的简历内容与模型输出，仅供回顾，不构成前后对比。
+                  </p>
+                )}
+              </>
+            )}
+
+            {reportView && (
+              <div className="min-h-0 overflow-y-auto">
+                <Alert tone="amber" className="mb-3">
+                  本报告生成于 {new Date(reportView.created_at).toLocaleString()}，基于<b>当时</b>的简历内容，
+                  仅供回顾。想了解当前水平请重新诊断。
+                </Alert>
+                <ScoreCard data={reportView.report.evalResult} />
+                {reportView.report.match && (
+                  <div className="mt-3 border-t border-border pt-2">
+                    <div className="text-label-13 text-muted-foreground">对目标 JD 的覆盖度（当时）</div>
+                    <MatchReportView report={reportView.report.match} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {histOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"

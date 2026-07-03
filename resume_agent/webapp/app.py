@@ -249,6 +249,16 @@ class RollbackReq(BaseModel):
     version: int
 
 
+class ReportCreateReq(BaseModel):
+    """诊断报告存档：前端诊断成功后落一条只读快照（历史回顾用，不参与任何对比/涨分展示）。"""
+    role: str
+    role_label: str
+    score: float
+    max: float
+    has_jd: bool = False
+    report: Dict[str, Any]                  # {evalResult, match} 全量快照
+
+
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
@@ -523,6 +533,23 @@ def api_resumes_revisions(rid: str):
 @app.post("/api/resumes/{rid}/rollback")
 def api_resumes_rollback(rid: str, req: RollbackReq):
     return get_repo().rollback(rid, req.revisionId, req.version)
+
+
+# 诊断报告记录：只读历史快照（回顾用；UI 不做任何跨报告对比/涨分展示——诚实口径）
+@app.post("/api/resumes/{rid}/reports")
+def api_reports_add(rid: str, req: ReportCreateReq):
+    return get_repo().add_report(rid, req.role, req.role_label, req.score,
+                                 req.max, req.has_jd, req.report)   # RepoNotFound → 404
+
+
+@app.get("/api/resumes/{rid}/reports")
+def api_reports_list(rid: str):
+    return {"reports": get_repo().list_reports(rid)}
+
+
+@app.get("/api/resumes/{rid}/reports/{report_id}")
+def api_reports_get(rid: str, report_id: str):
+    return get_repo().get_report(rid, report_id)
 
 
 # 静态：优先 Vite 构建产物；无则回退旧壳（开发时用 vite dev 代理）
