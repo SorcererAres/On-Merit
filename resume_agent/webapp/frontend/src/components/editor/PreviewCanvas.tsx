@@ -64,13 +64,20 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
     return () => window.clearTimeout(id);
   }, [resume, name, layout, blank]);
 
-  // --fit 按 iframe 实际容器宽（手机=390px 内层，桌面=工作区宽），而非外层工作区
+  // --fit 按 iframe 实际容器宽（手机=390px 内层，桌面=工作区宽），而非外层工作区。
+  // 设定后把 iframe 高度同步为文档内容高：滚动全交给外层画布（单一连续灰底、单一滚动条），
+  // 消除「iframe 内滚 + 外层再垫一段死灰」的断层（纸尾之下只剩 24px 画布边距）。
   const fit = () => {
-    const idoc = iframeRef.current?.contentDocument;
+    const iframe = iframeRef.current;
+    const idoc = iframe?.contentDocument;
     const inner = innerRef.current;
-    if (!idoc?.documentElement || !inner) return;
+    if (!iframe || !idoc?.documentElement || !inner) return;
     const scale = Math.max(0.3, Math.min(1, (inner.clientWidth - 32) / 794));
     idoc.documentElement.style.setProperty("--fit", String(scale));
+    // 先压 0 再量：doc 内 .canvas{min-height:100vh} 以 iframe 高为 vh 基准，
+    // 不压会自指棘轮（内容变矮时 scrollHeight 被旧 vh 撑住回不去）。同帧读写无闪烁。
+    iframe.style.height = "0px";
+    iframe.style.height = `${idoc.documentElement.scrollHeight}px`;
   };
   useEffect(() => {
     const t = window.setTimeout(fit, 0);   // 布局提交后主动 fit（device/tab 切换即刻生效，不依赖 RO 派发）
@@ -154,7 +161,7 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
       {tab === "source" && sourceText ? (
         <div className="min-h-0 flex-1 bg-background"><SourcePanel /></div>
       ) : blank ? (
-        <div className="anim-in flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-muted p-8 text-center">
+        <div className="anim-in flex min-h-0 flex-1 flex-col items-center justify-center gap-4 bg-[#f5f5f4] p-8 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-dashed border-border text-muted-foreground">
             <FileUp className="h-7 w-7" />
           </div>
@@ -167,10 +174,11 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
           <Button onClick={onImport}><FileUp className="h-4 w-4" /> 导入简历</Button>
         </div>
       ) : (
-        <div ref={wrapRef} className={cn("min-h-0 flex-1 overflow-auto bg-muted", device === "mobile" && "flex justify-center")}>
+        // 画布底色与 doc 内部 --canvas(#f5f5f4) 取齐，iframe 高=内容高后两层灰无缝衔接
+        <div ref={wrapRef} className={cn("min-h-0 flex-1 overflow-auto bg-[#f5f5f4]", device === "mobile" && "flex justify-center")}>
           <div ref={innerRef} className={device === "mobile" ? "w-[390px] shrink-0" : "w-full"}>
             <iframe key={docKey} ref={iframeRef} title="简历预览" sandbox="allow-same-origin allow-modals"
-              srcDoc={doc} onLoad={onFrameLoad} className="h-full min-h-[70vh] w-full border-0 bg-transparent" />
+              srcDoc={doc} onLoad={onFrameLoad} className="block w-full border-0 bg-transparent" />
           </div>
         </div>
       )}
