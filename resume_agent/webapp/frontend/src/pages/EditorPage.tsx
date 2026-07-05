@@ -13,6 +13,7 @@ import type { ResumeRecord, Snapshot } from "@/store/useStore";
 import { SectionEditor } from "@/components/editor/SectionEditor";
 import { PreviewCanvas } from "@/components/editor/PreviewCanvas";
 import { DiagnosePanel } from "@/components/editor/DiagnosePanel";
+import { validateResumeForm } from "@/lib/validateResumeForm";
 import { PolishPanel } from "@/components/editor/PolishPanel";
 import { TemplatesPanel, StylePanel } from "@/components/editor/LayoutPanels";
 import { ImportDialog } from "@/components/editor/ImportDialog";
@@ -71,7 +72,7 @@ export function EditorPage() {
   const setMode = (m: Mode) => setSp({ mode: m }, { replace: true });
 
   const {
-    title, resumeId, version, dirty, conflict, hydrationKey,
+    title, resumeId, version, dirty, conflict, hydrationKey, resume,
     loadRecord, setTitle, restoreSnapshot,
   } = useStore();
   const { saving, saveNow } = useAutoSave(id);
@@ -79,6 +80,21 @@ export function EditorPage() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [rightView, setRightView] = useState<RightView>("diagnose");
+  const [showIncomplete, setShowIncomplete] = useState(false);
+
+  const issues = validateResumeForm(resume);
+  // 诊断/下载前完整性检查（不阻断，仅提示 §4.3）：有缺项则亮黄条
+  const flagIncomplete = () => { if (validateResumeForm(useStore.getState().resume).length) setShowIncomplete(true); };
+  // 点缺项 → 展开左栏 + 滚动到对应分节（固定节 sec-*，扩展模块 mod-*）
+  const scrollToSection = (key: string) => {
+    setLeftOpen(true);
+    setTimeout(() => {
+      const el = document.getElementById(`sec-${key}`) || document.getElementById(`mod-${key}`)
+        || document.querySelector('[id^="mod-custom-"]');
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+  };
+  const download = () => { flagIncomplete(); printRef.current(); };
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [importOpen, setImportOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
@@ -312,7 +328,7 @@ export function EditorPage() {
               className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
               <Upload className="h-4 w-4" /><span className="pl-1">导入</span>
             </button>
-            <button onClick={() => printRef.current()}
+            <button onClick={download}
               className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
               <Download className="h-4 w-4" /><span className="pl-1">下载</span>
             </button>
@@ -330,6 +346,26 @@ export function EditorPage() {
           <div className="mt-2 flex gap-2">
             <Button variant="secondary" onClick={reload}>重新加载（丢弃本地改动）</Button>
             <Button variant="danger" onClick={overrideMine}>用我的覆盖</Button>
+          </div>
+        </Alert>
+      )}
+
+      {showIncomplete && issues.length > 0 && (
+        <Alert tone="amber" className="mx-4 mt-3 shrink-0">
+          <div className="flex items-start">
+            <div className="flex-1">
+              <b>简历还有 {issues.length} 处必填未完整</b>（不影响保存，建议补全后再诊断/导出）：
+              <ul className="mt-1 space-y-0.5">
+                {issues.slice(0, 8).map((it, i) => (
+                  <li key={i}>
+                    <button onClick={() => scrollToSection(it.sectionKey)}
+                      className="text-left underline underline-offset-2 hover:opacity-70">{it.msg}</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <button aria-label="关闭提示" onClick={() => setShowIncomplete(false)}
+              className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
           </div>
         </Alert>
       )}
@@ -379,8 +415,8 @@ export function EditorPage() {
               </div>
             )}
             {mode === "layout"
-              ? <StylePanel device={device} setDevice={setDevice} onExport={() => printRef.current()} />
-              : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel />}
+              ? <StylePanel device={device} setDevice={setDevice} onExport={download} />
+              : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel onBeforeRun={flagIncomplete} />}
           </aside>
         )}
       </div>

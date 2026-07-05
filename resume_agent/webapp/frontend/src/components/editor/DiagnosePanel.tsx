@@ -11,7 +11,7 @@ import type { EvalResult, MatchReport, Role } from "@/types";
 import { Wand2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
-export function DiagnosePanel() {
+export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}) {
   const { resume, jd, role, diagnosis, setJD, setRole, setDiagnosis } = useStore();
   const [roles, setRoles] = useState<Role[]>([]);
   useEffect(() => { getJSON<{ roles: Role[] }>("/api/roles").then((d) => setRoles(d.roles)).catch(() => {}); }, []);
@@ -37,6 +37,7 @@ export function DiagnosePanel() {
     return { evalResult, match };
   });
   const runAnalyze = async () => {
+    onBeforeRun?.();                 // 诊断前完整性提示（不阻断，仅亮黄条 §4.3）
     const st = stamp();
     const r = await analyze.run();
     if (!r) return;
