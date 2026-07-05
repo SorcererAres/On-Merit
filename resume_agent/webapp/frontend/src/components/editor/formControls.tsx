@@ -2,9 +2,13 @@
 // 描述字段本期用计数 Textarea（富文本留 E3）。样式取既有 token。
 import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { postJSON } from "@/lib/api";
+import { useStore } from "@/store/useStore";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import {
   ChevronDown, Trash2, Plus, Calendar, X,
-  Bold, Italic, List, ListOrdered, Sparkles,
+  Bold, Italic, List, ListOrdered, Sparkles, Loader2,
 } from "lucide-react";
 
 /** 分节手风琴：标题 + 可收起 ^；右侧插槽放「移除模块」等 */
@@ -157,16 +161,56 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
   );
 }
 
-/** 迷你富文本（E3 降级方案：Textarea + 工具栏插 md 标记，中栏预览实时渲染）。
- * 存储即 md 字面（与渲染 resumeBodyMd 读 description 为 md 一致），零序列化风险。
- * 工具栏对选中文本包裹加粗/斜体标记、行首插列表符；AI 润色/生成为占位（E4/E5 接线）。 */
-export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus, onPolish, onGenerate }: {
+// new_terms 高亮：把润色后文本中「疑似新出现」的片段标黄（提示核实，不改内容）
+function highlightNewTerms(text: string, terms: string[]) {
+  if (!terms.length) return text;
+  const esc = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).filter(Boolean);
+  if (!esc.length) return text;
+  const re = new RegExp(`(${esc.join("|")})`, "g");
+  return text.split(re).map((seg, i) =>
+    terms.includes(seg)
+      ? <mark key={i} className="rounded-sm bg-amber-200/70 px-0.5">{seg}</mark>
+      : <span key={i}>{seg}</span>);
+}
+
+/** 迷你富文本（E3：Textarea + 工具栏插 md 标记，中栏预览实时渲染）+ E4 字段级 AI 润色。
+ * 存储即 md 字面（零序列化风险）。polishKind 提供时「AI 润色」启用：调 /api/polish-field →
+ * 原文/润色后对照弹窗（new_terms 高亮）→ 采纳/放弃；语境戳（resumeId+loadSeq+发起时字段值）
+ * 变化则拒绝写入（防过期覆盖）。「AI 生成」留 E5。 */
+export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus, polishKind }: {
   value?: string; onChange: (v: string) => void; placeholder: string; max?: number;
-  onFocus?: () => void; onPolish?: () => void; onGenerate?: () => void;
+  onFocus?: () => void; polishKind?: string;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const pendingSel = useRef<[number, number] | null>(null);
   const v = value ?? "";
+  const [polishing, setPolishing] = useState(false);
+  const [result, setResult] = useState<{ md: string; new_terms: string[] } | null>(null);
+  const stamp = useRef<{ id: string | null; load: number; val: string } | null>(null);
+
+  const doPolish = async () => {
+    if (v.trim().length < 10 || polishing) return;
+    const s = useStore.getState();
+    stamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
+    setPolishing(true);
+    try {
+      const r = await postJSON<{ md: string; new_terms: string[] }>("/api/polish-field",
+        { text: v, kind: polishKind, jd: s.jd?.trim() ? s.jd : undefined });
+      setResult(r);
+    } catch (e) {
+      toast.error((e as Error).message || "润色失败，请重试");
+    } finally { setPolishing(false); }
+  };
+  const adopt = () => {
+    const s = useStore.getState();
+    if (!stamp.current || s.resumeId !== stamp.current.id || s.loadSeq !== stamp.current.load
+        || v !== stamp.current.val) {
+      toast.message("字段在润色期间已变化，请重新润色"); setResult(null); return;
+    }
+    onChange(result!.md.slice(0, max));
+    toast.success("已采纳润色（按仅重述规则生成，请核实）");
+    setResult(null);
+  };
   // 工具栏改 value 后（受控重渲）恢复光标/选区
   useLayoutEffect(() => {
     if (pendingSel.current && ref.current) {
@@ -200,13 +244,14 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
       {children}
     </button>
   );
-  const AiChip = ({ label, on }: { label: string; on?: () => void }) => (
-    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!on}
-      title={on ? label : `${label}（即将上线）`}
+  const polishReady = !!polishKind && v.trim().length >= 10;
+  const AiChip = ({ label, on, enabled, busy }: { label: string; on?: () => void; enabled?: boolean; busy?: boolean }) => (
+    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!enabled || busy}
+      title={enabled ? label : (polishKind ? `${label}（至少填 10 字）` : `${label}（即将上线）`)}
       className={cn("flex h-7 items-center gap-1 rounded-full px-2.5 text-[13px]",
-        on ? "text-green-800 hover:opacity-80" : "text-green-800/50 cursor-default")}
+        enabled && !busy ? "text-green-800 hover:opacity-80" : "text-green-800/50 cursor-default")}
       style={{ background: "var(--green-100)" }}>
-      <Sparkles className="h-3.5 w-3.5" /> {label}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {label}
     </button>
   );
   return (
@@ -218,8 +263,8 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
         <TBtn label="无序列表" on={() => prefixLines(false)}><List className="h-4 w-4" /></TBtn>
         <TBtn label="有序列表" on={() => prefixLines(true)}><ListOrdered className="h-4 w-4" /></TBtn>
         <div className="ml-auto flex items-center gap-1.5">
-          <AiChip label="AI 润色" on={onPolish} />
-          <AiChip label="AI 生成" on={onGenerate} />
+          <AiChip label="AI 润色" on={doPolish} enabled={polishReady} busy={polishing} />
+          <AiChip label="AI 生成" enabled={false} />
         </div>
       </div>
       <div className="p-3">
@@ -228,6 +273,38 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
           className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
         <div className="mt-1 text-right text-[12px] text-muted-foreground">{v.length}/{max}</div>
       </div>
+
+      {result && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setResult(null); }}>
+          <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-heading-20">AI 润色 · 逐条核实</h3>
+              <button aria-label="关闭" onClick={() => setResult(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="mb-3 text-label-12 text-muted-foreground">按「仅重述已有事实」规则生成，未新增数字（确定性校验）；但文本性新表述仍需你核实，请对照原文。</p>
+            <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto">
+              <div>
+                <div className="mb-1 text-label-12 text-muted-foreground">原文</div>
+                <div className="whitespace-pre-wrap rounded-lg border border-border bg-muted/40 p-3 text-copy-13 text-muted-foreground">{v}</div>
+              </div>
+              <div>
+                <div className="mb-1 text-label-12 text-muted-foreground">润色后{result.new_terms.length > 0 && <span className="ml-1 text-amber-700">· 黄底为新出现表述，请核实</span>}</div>
+                <div className="whitespace-pre-wrap rounded-lg border border-border p-3 text-copy-13 text-foreground">{highlightNewTerms(result.md, result.new_terms)}</div>
+              </div>
+            </div>
+            {result.new_terms.length > 0 && (
+              <div className="mt-2 shrink-0 text-label-12 text-amber-700">
+                新出现的表述：{result.new_terms.join("、")} —— 若非你的真实经历，请勿采纳。
+              </div>
+            )}
+            <div className="mt-4 flex shrink-0 justify-end gap-2">
+              <Button variant="secondary" onClick={() => setResult(null)}>放弃</Button>
+              <Button onClick={adopt}>采纳</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

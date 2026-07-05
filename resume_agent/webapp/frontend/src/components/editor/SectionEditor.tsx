@@ -142,7 +142,7 @@ export function SectionEditor() {
               </Field>
               <MonthRange label="时间" start={e.startDate} end={e.endDate} error={errOf(`education[${i}].endDate`)}
                 onStart={(v) => { e.startDate = v; bump(); }} onEnd={(v) => { e.endDate = v; bump(); }} />
-              <RichTextarea value={e.description} placeholder="可填写专业、课程、成绩、论文、奖项"
+              <RichTextarea value={e.description} polishKind="edu" placeholder="可填写专业、课程、成绩、论文、奖项"
                 onFocus={() => link(e.description)}
                 onChange={(v) => { e.description = v; bump(); }} />
             </ItemCard>
@@ -168,7 +168,7 @@ export function SectionEditor() {
                 <BareInput aria-label={`工作 ${i + 1} 岗位`} value={w.position ?? ""} placeholder="请输入岗位名称"
                   onChange={(ev) => { w.position = ev.target.value; bump(); }} />
               </Field>
-              <RichTextarea value={w.description} placeholder="请填写工作职责与成果"
+              <RichTextarea value={w.description} polishKind="work" placeholder="请填写工作职责与成果"
                 onFocus={() => link(w.description)}
                 onChange={(v) => { w.description = v; bump(); }} />
             </ItemCard>
@@ -194,7 +194,7 @@ export function SectionEditor() {
               </Field>
               <MonthRange label="项目时间" start={p.startDate} end={p.endDate} error={errOf(`projects[${i}].endDate`)}
                 onStart={(v) => { p.startDate = v; bump(); }} onEnd={(v) => { p.endDate = v; bump(); }} />
-              <RichTextarea value={p.description} placeholder="请填写项目经历描述"
+              <RichTextarea value={p.description} polishKind="project" placeholder="请填写项目经历描述"
                 onFocus={() => link(p.description)}
                 onChange={(v) => { p.description = v; bump(); }} />
             </ItemCard>
@@ -205,14 +205,14 @@ export function SectionEditor() {
 
       {/* 个人优势 */}
       <AccordionSection title="个人优势" id="sec-summary">
-        <RichTextarea value={b.summary} placeholder="请填写个人优势"
+        <RichTextarea value={b.summary} polishKind="summary" placeholder="请填写个人优势"
           onFocus={() => link(b.summary)}
           onChange={(v) => { b.summary = v; bump(); }} />
       </AccordionSection>
 
       {/* 掌握技能 */}
       <AccordionSection title="掌握技能" id="sec-skills">
-        <RichTextarea value={typeof d.skills_md === "string" ? d.skills_md : ""} placeholder="请填写掌握的技能"
+        <RichTextarea value={typeof d.skills_md === "string" ? d.skills_md : ""} polishKind="skills" placeholder="请填写掌握的技能"
           onFocus={() => link(d.skills_md)}
           onChange={(v) => { d.skills_md = v; bump(); }} />
       </AccordionSection>

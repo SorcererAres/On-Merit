@@ -42,6 +42,11 @@ const SIMPLE: Record<string, SimpleCfg> = {
   certificates: { label: "资格证书", addLabel: "新增资格证书", fields: [
     ["name", "证书名称", "请输入证书名称", true], ["date", "取得时间", "", false, "date"] ] },
 };
+// 经历型模块 → polish-field kind（社团/志愿者/校园大使共用 activity）
+const POLISH_KIND: Record<string, string> = {
+  internships: "internship", organizations: "activity", volunteer: "activity",
+  campus: "activity", thesis: "thesis", competitions: "competition",
+};
 // 面板顺序（自定义永驻末位）
 const PANEL = [
   "job_intent", "internships", "organizations", "awards", "volunteer",
@@ -120,7 +125,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
                 onStart={(v) => { it.startDate = v; bump(); }} onEnd={(v) => { it.endDate = v; bump(); }} />
             )}
             {cfg.date && <MonthCell label="时间" value={it.date} onChange={(v) => { it.date = v; bump(); }} />}
-            <RichTextarea value={it.description} placeholder="请填写描述"
+            <RichTextarea value={it.description} placeholder="请填写描述" polishKind={POLISH_KIND[key]}
               onFocus={() => link(it.description)}
               onChange={(v) => { it.description = v; bump(); }} />
           </ItemCard>
@@ -188,7 +193,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
           onBlur={() => touch(`custom_sections[${i}].title`)}
           onChange={(e) => { cs.title = e.target.value; bump(); }} />
       </Field>
-      <RichTextarea value={cs.content} placeholder="请输入模块正文"
+      <RichTextarea value={cs.content} placeholder="请输入模块正文" polishKind="custom"
         onFocus={() => link(cs.content)}
         onChange={(v) => { cs.content = v; bump(); }} />
     </AccordionSection>
