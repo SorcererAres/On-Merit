@@ -161,6 +161,8 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
   );
 }
 
+let _genNoticeShown = false;   // 「AI 生成」一次性说明（会话级）
+
 // new_terms 高亮：把润色后文本中「疑似新出现」的片段标黄（提示核实，不改内容）
 function highlightNewTerms(text: string, terms: string[]) {
   if (!terms.length) return text;
@@ -185,7 +187,9 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   const pendingSel = useRef<[number, number] | null>(null);
   const v = value ?? "";
   const [polishing, setPolishing] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{ md: string; new_terms: string[] } | null>(null);
+  const [genResult, setGenResult] = useState<{ md: string; mode: "extract" | "template" } | null>(null);
   const stamp = useRef<{ id: string | null; load: number; val: string } | null>(null);
 
   const doPolish = async () => {
@@ -210,6 +214,30 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     onChange(result!.md.slice(0, max));
     toast.success("已采纳润色（按仅重述规则生成，请核实）");
     setResult(null);
+  };
+  const doGenerate = async () => {
+    if (generating) return;
+    const s = useStore.getState();
+    stamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
+    setGenerating(true);
+    try {
+      const r = await postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field",
+        { kind: polishKind, source_text: s.sourceText || undefined });
+      if (!_genNoticeShown) { _genNoticeShown = true; toast.message("AI 生成只做「原件提取」或「结构模板」，不会替你编造经历"); }
+      setGenResult(r);
+    } catch (e) {
+      toast.error((e as Error).message || "生成失败，请重试");
+    } finally { setGenerating(false); }
+  };
+  const adoptGen = () => {
+    const s = useStore.getState();
+    if (!stamp.current || s.resumeId !== stamp.current.id || s.loadSeq !== stamp.current.load
+        || v !== stamp.current.val) {
+      toast.message("字段已变化，请重新生成"); setGenResult(null); return;
+    }
+    onChange(genResult!.md.slice(0, max));
+    toast.success(genResult!.mode === "template" ? "已插入结构模板，请填入你的真实经历" : "已插入原件提取内容，请核实");
+    setGenResult(null);
   };
   // 工具栏改 value 后（受控重渲）恢复光标/选区
   useLayoutEffect(() => {
@@ -264,7 +292,7 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
         <TBtn label="有序列表" on={() => prefixLines(true)}><ListOrdered className="h-4 w-4" /></TBtn>
         <div className="ml-auto flex items-center gap-1.5">
           <AiChip label="AI 润色" on={doPolish} enabled={polishReady} busy={polishing} />
-          <AiChip label="AI 生成" enabled={false} />
+          <AiChip label="AI 生成" on={doGenerate} enabled={!!polishKind} busy={generating} />
         </div>
       </div>
       <div className="p-3">
@@ -301,6 +329,33 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
             <div className="mt-4 flex shrink-0 justify-end gap-2">
               <Button variant="secondary" onClick={() => setResult(null)}>放弃</Button>
               <Button onClick={adopt}>采纳</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {genResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setGenResult(null); }}>
+          <div className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-heading-20">AI 生成 · {genResult.mode === "extract" ? "原件提取" : "结构模板"}</h3>
+              <button aria-label="关闭" onClick={() => setGenResult(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="mb-3 text-label-12 text-muted-foreground">
+              {genResult.mode === "extract"
+                ? "以下内容抽取自你导入的原件（逐句核对出处），请再次核实无误后采纳。"
+                : "这是一份结构模板，不含任何具体事实——采纳后请把方括号占位替换为你的真实经历。"}
+            </p>
+            <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-copy-13 text-foreground">
+              {genResult.md}
+            </div>
+            {v.trim() && (
+              <div className="mt-2 shrink-0 text-label-12 text-amber-700">当前字段已有内容，采纳将替换它。</div>
+            )}
+            <div className="mt-4 flex shrink-0 justify-end gap-2">
+              <Button variant="secondary" onClick={() => setGenResult(null)}>放弃</Button>
+              <Button onClick={adoptGen}>采纳</Button>
             </div>
           </div>
         </div>
