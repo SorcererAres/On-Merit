@@ -54,11 +54,12 @@ def _md_ok(v: Any) -> bool:
     return isinstance(v, str) and len(v.strip()) >= 10
 
 
-# md 富文本路径（保留换行=列表结构）；其余（highlights/level）折叠换行防伪造多条。
+# md 富文本路径（保留换行=列表结构）；其余（highlights/level/旧 work·volunteer.summary）
+# 折叠换行防伪造多条。注意：不能一刀切匹配 .summary——work[i].summary/volunteer[i].summary
+# 是旧结构的单段职责摘要（非 md），换行须折叠；只有 basics.summary（个人优势 md）保留换行。
 def _is_md_path(path: str) -> bool:
     return (path == "basics.summary" or path == "skills_md"
-            or path.endswith(".description") or path.endswith(".content")
-            or path.endswith(".summary"))
+            or path.endswith(".description") or path.endswith(".content"))
 
 
 def _enum_dicts(resume: Dict[str, Any], sec: str):

@@ -7,7 +7,7 @@ import { resumeToDoc } from "@/lib/resumeDoc";
 import { SourcePanel } from "./SourcePanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { Eye, FileText, FileUp, Sparkles, ZoomIn, ZoomOut } from "lucide-react";
+import { Eye, FileText, FileUp, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import type { Resume } from "@/types";
 
@@ -112,10 +112,9 @@ export function isBlankResume(r: Resume | null): boolean {
   return !basicsHas && !CONTENT_KEYS.some((k) => hasVal((r as Record<string, unknown>)[k]));
 }
 
-export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi }: {
+export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
   device: "desktop" | "mobile";
-  showPolish: boolean;              // 仅诊断模式显示「AI 润色」
-  onPolish: () => void;
+  showPolish: boolean;              // 诊断模式提供原件对照 tab
   onImport: () => void;
   printApi: (fn: () => void) => void;   // 上抛打印函数（顶栏「下载」/样式面板「导出 PDF」共用）
 }) {
@@ -261,12 +260,6 @@ export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi
                 <ZoomIn className="h-4 w-4" />
               </button>
             </div>
-          )}
-          {showPolish && (
-            <button onClick={onPolish}
-              className="flex h-7 items-center gap-1 rounded-full border border-border px-[11px] text-[13px] leading-6 text-foreground hover:bg-accent/40">
-              <Sparkles className="h-3.5 w-3.5" /> AI 润色
-            </button>
           )}
         </div>
       </div>

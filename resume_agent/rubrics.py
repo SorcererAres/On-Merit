@@ -119,7 +119,7 @@ def _impact_texts(resume: Dict[str, Any]) -> List[str]:
         else:
             out += [h for h in (p.get("highlights") or []) if isinstance(h, str)]
     for e in _dicts(resume, "education"):
-        if isinstance(e.get("description"), str):
+        if isinstance(e.get("description"), str) and e["description"].strip():
             out.append(e["description"])
     if isinstance(resume.get("skills_md"), str):
         out.append(resume["skills_md"])

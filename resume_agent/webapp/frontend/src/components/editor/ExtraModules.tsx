@@ -126,6 +126,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
             )}
             {cfg.date && <MonthCell label="时间" value={it.date} onChange={(v) => { it.date = v; bump(); }} />}
             <RichTextarea value={it.description} placeholder="请填写描述" polishKind={POLISH_KIND[key]}
+              genContext={[it[cfg.nameKey], ...(cfg.extra ?? []).map(([fk]) => it[fk])].filter(Boolean).join(" · ")}
               onFocus={() => link(it.description)}
               onChange={(v) => { it.description = v; bump(); }} />
           </ItemCard>
@@ -194,6 +195,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
           onChange={(e) => { cs.title = e.target.value; bump(); }} />
       </Field>
       <RichTextarea value={cs.content} placeholder="请输入模块正文" polishKind="custom"
+        genContext={cs.title || undefined}
         onFocus={() => link(cs.content)}
         onChange={(v) => { cs.content = v; bump(); }} />
     </AccordionSection>

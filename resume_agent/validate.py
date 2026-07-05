@@ -39,6 +39,7 @@ def _is_str_list(v: Any) -> bool:
 # 只校验形状/类型/枚举/长度/边界，不校验必填（必填由前端 validateResumeForm 提示，
 # 否则新增空条目在填写期间无法 autosave）。全部字段可空，老数据零迁移。
 import re as _re
+from datetime import datetime as _datetime
 
 _GENDER = {"male", "female"}
 _STUDY_MODE = {"full_time", "part_time"}
@@ -64,6 +65,8 @@ def _check_new_fields(resume: Dict[str, Any]) -> List[str]:
         if bm is not None:
             if not isinstance(bm, str) or not _BIRTH_RE.match(bm) or not (1900 <= int(bm[:4]) <= 2100):
                 errs.append("basics.birthMonth 必须是 YYYY-MM（月份 01–12，年 1900–2100）")
+            elif bm > _datetime.now().strftime("%Y-%m"):   # YYYY-MM 字典序即时间序：不晚于当前月
+                errs.append("basics.birthMonth 不能晚于当前月")
         for f in ("wechat", "hometown"):
             v = b.get(f)
             if v is not None and not isinstance(v, str):

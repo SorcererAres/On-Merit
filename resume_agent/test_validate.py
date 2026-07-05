@@ -142,6 +142,7 @@ def test_new_fields_reject_each_rule():
     has({"basics": {"gender": "x"}}, "gender")
     has({"basics": {"birthMonth": "1995-13"}}, "birthMonth")          # 非法月份
     has({"basics": {"birthMonth": "95-8"}}, "birthMonth")             # 格式
+    has({"basics": {"birthMonth": "2099-01"}}, "不能晚于当前月")       # 未来生日（opencode 复核补）
     has({"basics": {"tags": ["a"] * 9}}, "最多 8")
     has({"basics": {"tags": ["x" * 13]}}, "标签过长")
     has({"basics": {"hometown": "城" * 21}}, "hometown 过长")

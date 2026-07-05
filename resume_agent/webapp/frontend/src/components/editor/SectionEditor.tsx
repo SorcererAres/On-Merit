@@ -142,7 +142,9 @@ export function SectionEditor() {
               </Field>
               <MonthRange label="时间" start={e.startDate} end={e.endDate} error={errOf(`education[${i}].endDate`)}
                 onStart={(v) => { e.startDate = v; bump(); }} onEnd={(v) => { e.endDate = v; bump(); }} />
-              <RichTextarea value={e.description} polishKind="edu" placeholder="可填写专业、课程、成绩、论文、奖项"
+              <RichTextarea value={e.description} polishKind="edu"
+                genContext={[e.institution, e.studyType, e.area].filter(Boolean).join(" · ")}
+                placeholder="可填写专业、课程、成绩、论文、奖项"
                 onFocus={() => link(e.description)}
                 onChange={(v) => { e.description = v; bump(); }} />
             </ItemCard>
@@ -168,7 +170,9 @@ export function SectionEditor() {
                 <BareInput aria-label={`工作 ${i + 1} 岗位`} value={w.position ?? ""} placeholder="请输入岗位名称"
                   onChange={(ev) => { w.position = ev.target.value; bump(); }} />
               </Field>
-              <RichTextarea value={w.description} polishKind="work" placeholder="请填写工作职责与成果"
+              <RichTextarea value={w.description} polishKind="work"
+                genContext={[w.name, w.position, [w.startDate, w.endDate].filter(Boolean).join("–")].filter(Boolean).join(" · ")}
+                placeholder="请填写工作职责与成果"
                 onFocus={() => link(w.description)}
                 onChange={(v) => { w.description = v; bump(); }} />
             </ItemCard>
@@ -194,7 +198,9 @@ export function SectionEditor() {
               </Field>
               <MonthRange label="项目时间" start={p.startDate} end={p.endDate} error={errOf(`projects[${i}].endDate`)}
                 onStart={(v) => { p.startDate = v; bump(); }} onEnd={(v) => { p.endDate = v; bump(); }} />
-              <RichTextarea value={p.description} polishKind="project" placeholder="请填写项目经历描述"
+              <RichTextarea value={p.description} polishKind="project"
+                genContext={[p.name, p.role].filter(Boolean).join(" · ")}
+                placeholder="请填写项目经历描述"
                 onFocus={() => link(p.description)}
                 onChange={(v) => { p.description = v; bump(); }} />
             </ItemCard>

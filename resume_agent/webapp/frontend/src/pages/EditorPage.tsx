@@ -384,7 +384,6 @@ export function EditorPage() {
         )}
 
         <PreviewCanvas device={device} showPolish={mode === "diagnose"}
-          onPolish={() => { setRightView("polish"); setRightOpen(true); }}
           onImport={() => setImportOpen(true)} printApi={printApi} />
 
         {rightOpen && (

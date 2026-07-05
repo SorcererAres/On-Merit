@@ -179,9 +179,10 @@ function highlightNewTerms(text: string, terms: string[]) {
  * 存储即 md 字面（零序列化风险）。polishKind 提供时「AI 润色」启用：调 /api/polish-field →
  * 原文/润色后对照弹窗（new_terms 高亮）→ 采纳/放弃；语境戳（resumeId+loadSeq+发起时字段值）
  * 变化则拒绝写入（防过期覆盖）。「AI 生成」留 E5。 */
-export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus, polishKind }: {
+export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus, polishKind, genContext }: {
   value?: string; onChange: (v: string) => void; placeholder: string; max?: number;
   onFocus?: () => void; polishKind?: string;
+  genContext?: string;   // 该条目已填结构化字段（公司/岗位/项目名…），生成时作定位线索（§4.9）
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const pendingSel = useRef<[number, number] | null>(null);
@@ -190,12 +191,14 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   const [generating, setGenerating] = useState(false);
   const [result, setResult] = useState<{ md: string; new_terms: string[] } | null>(null);
   const [genResult, setGenResult] = useState<{ md: string; mode: "extract" | "template" } | null>(null);
-  const stamp = useRef<{ id: string | null; load: number; val: string } | null>(null);
+  // 润色/生成各自独立语境戳——共用一个 ref 会在并发（润色飞行中点生成）时被覆盖，导致过期结果绕过校验
+  const polishStamp = useRef<{ id: string | null; load: number; val: string } | null>(null);
+  const genStamp = useRef<{ id: string | null; load: number; val: string } | null>(null);
 
   const doPolish = async () => {
     if (v.trim().length < 10 || polishing) return;
     const s = useStore.getState();
-    stamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
+    polishStamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
     setPolishing(true);
     try {
       const r = await postJSON<{ md: string; new_terms: string[] }>("/api/polish-field",
@@ -207,8 +210,8 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   };
   const adopt = () => {
     const s = useStore.getState();
-    if (!stamp.current || s.resumeId !== stamp.current.id || s.loadSeq !== stamp.current.load
-        || v !== stamp.current.val) {
+    const st = polishStamp.current;
+    if (!st || s.resumeId !== st.id || s.loadSeq !== st.load || v !== st.val) {
       toast.message("字段在润色期间已变化，请重新润色"); setResult(null); return;
     }
     onChange(result!.md.slice(0, max));
@@ -218,11 +221,11 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   const doGenerate = async () => {
     if (generating) return;
     const s = useStore.getState();
-    stamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
+    genStamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
     setGenerating(true);
     try {
       const r = await postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field",
-        { kind: polishKind, source_text: s.sourceText || undefined });
+        { kind: polishKind, source_text: s.sourceText || undefined, entry_context: genContext?.trim() || undefined });
       if (!_genNoticeShown) { _genNoticeShown = true; toast.message("AI 生成只做「原件提取」或「结构模板」，不会替你编造经历"); }
       setGenResult(r);
     } catch (e) {
@@ -231,8 +234,8 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   };
   const adoptGen = () => {
     const s = useStore.getState();
-    if (!stamp.current || s.resumeId !== stamp.current.id || s.loadSeq !== stamp.current.load
-        || v !== stamp.current.val) {
+    const st = genStamp.current;
+    if (!st || s.resumeId !== st.id || s.loadSeq !== st.load || v !== st.val) {
       toast.message("字段已变化，请重新生成"); setGenResult(null); return;
     }
     onChange(genResult!.md.slice(0, max));
