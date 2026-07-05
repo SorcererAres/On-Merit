@@ -2,6 +2,7 @@
 
 import evaluate as ev
 import rubrics
+import patcher as P
 from mdtext import strip_md
 
 
@@ -52,9 +53,45 @@ def test_rubrics_quantified_reads_description():
     print("OK: 量化影响读 description（回退旧字段仍有效）")
 
 
+def test_patcher_new_md_paths_and_priority():
+    r = {"work": [{"name": "A", "description": "负责后端服务，QPS 提升三倍以上",
+                   "summary": "旧摘要够长的内容", "highlights": ["旧要点内容够长"]}],
+         "skills_md": "精通 Python 与 Go 语言开发",
+         "education": [{"institution": "某校", "description": "主修课程与毕业论文相关内容"}],
+         "custom_sections": [{"id": "c1", "title": "作品", "content": "开源项目星标超过两千个"}]}
+    paths = set(P.editable_paths(r))
+    assert {"work[0].description", "skills_md", "education[0].description", "custom_sections[0].content"} <= paths
+    assert "work[0].summary" not in paths and "work[0].highlights[0]" not in paths  # description 存在→旧路径不开
+    # <10 字不开放
+    assert "work[0].description" not in set(P.editable_paths({"work": [{"name": "B", "description": "短"}]}))
+    # 无 description 回退旧字段
+    p3 = set(P.editable_paths({"work": [{"name": "C", "summary": "较长的旧摘要内容在此", "highlights": ["够长的旧要点内容"]}]}))
+    assert "work[0].summary" in p3 and "work[0].highlights[0]" in p3
+    print("OK: patcher 新 md 路径 + description 优先 + ≥10 门槛 + 回退")
+
+
+def test_patcher_md_keeps_newline_highlights_fold():
+    r = {"work": [{"name": "A", "description": "负责后端服务，QPS 提升三倍以上",
+                   "highlights": ["够长的旧要点"]}],
+         "skills_md": "精通 Python 与 Go 语言开发"}
+    out = P.apply_patches(r, [{"path": "work[0].description", "text": "- 第一行\n- 第二行"}])
+    assert "\n" in out.resume["work"][0]["description"] and out.applied == ["work[0].description"]
+    # highlights 折叠换行（防伪造多条）
+    r2 = {"work": [{"name": "C", "highlights": ["够长的旧要点内容"]}]}
+    outh = P.apply_patches(r2, [{"path": "work[0].highlights[0]", "text": "多\n行\n伪造"}])
+    assert "\n" not in outh.resume["work"][0]["highlights"][0]
+    # skills_md 写入 + 越权拒绝
+    outs = P.apply_patches(r, [{"path": "skills_md", "text": "- Python\n- Go"}])
+    assert "\n" in outs.resume["skills_md"]
+    assert P.apply_patches(r, [{"path": "work[0].name", "text": "改名"}]).applied == []
+    print("OK: md 保留换行 / highlights 折叠 / skills_md 写入 / 越权拒绝")
+
+
 if __name__ == "__main__":
     test_strip_md()
     test_new_fields_enter_text_description_priority()
     test_fairness_boundary_holds()
     test_rubrics_quantified_reads_description()
+    test_patcher_new_md_paths_and_priority()
+    test_patcher_md_keeps_newline_highlights_fold()
     print("\nALL PASS")

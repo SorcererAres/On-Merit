@@ -48,6 +48,19 @@ def _is_str(v: Any) -> bool:
     return isinstance(v, str)
 
 
+# 富文本可编辑字段的实质内容门槛：剥空白后 ≥10 字才开放改写——空/近空字段交给改写模型
+# 等于开凭空生成入口（编辑表单 v3 §3.2）。
+def _md_ok(v: Any) -> bool:
+    return isinstance(v, str) and len(v.strip()) >= 10
+
+
+# md 富文本路径（保留换行=列表结构）；其余（highlights/level）折叠换行防伪造多条。
+def _is_md_path(path: str) -> bool:
+    return (path == "basics.summary" or path == "skills_md"
+            or path.endswith(".description") or path.endswith(".content")
+            or path.endswith(".summary"))
+
+
 def _enum_dicts(resume: Dict[str, Any], sec: str):
     """按**原始下标**产出 section 里的 dict 元素 (i, item)；非 list/非 dict 跳过但不重排下标。"""
     raw = resume.get(sec)
@@ -79,19 +92,33 @@ def editable_paths(resume: Dict[str, Any]) -> List[str]:
         return []
     paths: List[str] = []
     basics = resume.get("basics")
-    if isinstance(basics, dict) and _is_str(basics.get("summary")):
+    if isinstance(basics, dict) and _md_ok(basics.get("summary")):
         paths.append("basics.summary")
-    for sec in ("work", "volunteer"):
+    if _md_ok(resume.get("skills_md")):
+        paths.append("skills_md")
+    # 经历型：description 存在（且实质内容 ≥10 字）→ 只开放 description（不再开 summary/highlights，
+    # 改了也不渲染，属无效改写）；否则回退旧 summary/highlights。（编辑表单 v3 §3.2 统一优先级）
+    for sec in ("work", "volunteer", "internships", "organizations", "campus", "thesis", "competitions"):
         for i, item in _enum_dicts(resume, sec):
-            if _is_str(item.get("summary")):
-                paths.append(f"{sec}[{i}].summary")
-            for j, _ in _str_highlights(item):
-                paths.append(f"{sec}[{i}].highlights[{j}]")
+            if _md_ok(item.get("description")):
+                paths.append(f"{sec}[{i}].description")
+            else:
+                if _is_str(item.get("summary")):
+                    paths.append(f"{sec}[{i}].summary")
+                for j, _ in _str_highlights(item):
+                    paths.append(f"{sec}[{i}].highlights[{j}]")
     for i, item in _enum_dicts(resume, "projects"):
-        if _is_str(item.get("description")):
+        if _md_ok(item.get("description")):
             paths.append(f"projects[{i}].description")
-        for j, _ in _str_highlights(item):
-            paths.append(f"projects[{i}].highlights[{j}]")
+        else:
+            for j, _ in _str_highlights(item):
+                paths.append(f"projects[{i}].highlights[{j}]")
+    for i, item in _enum_dicts(resume, "education"):
+        if _md_ok(item.get("description")):
+            paths.append(f"education[{i}].description")
+    for i, item in _enum_dicts(resume, "custom_sections"):
+        if _md_ok(item.get("content")):
+            paths.append(f"custom_sections[{i}].content")
     for i, item in _enum_dicts(resume, "skills"):
         if _is_str(item.get("level")):
             paths.append(f"skills[{i}].level")
@@ -112,6 +139,9 @@ def _set_at(resume: Dict[str, Any], path: str, value: str) -> None:
     """把 value 写入 path（仅处理本模块定义的可编辑形状）。"""
     if path == "basics.summary":
         resume["basics"]["summary"] = value
+        return
+    if path == "skills_md":
+        resume["skills_md"] = value
         return
     m = re.match(r"^(\w+)\[(\d+)\](?:\.(\w+)(?:\[(\d+)\])?)?$", path)
     sec, i, field_name, j = m.group(1), int(m.group(2)), m.group(3), m.group(4)
@@ -194,12 +224,23 @@ class PatchOutcome:
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
-def _clean_patch_text(text: str) -> str:
-    """净化补丁文本：去控制字符、把换行折叠为空格。
+def _clean_patch_text(text: str, path: str = "") -> str:
+    """净化补丁文本：去控制字符。
 
-    防止单条 highlight 用换行/列表伪造成多个视觉条目（数组长度不变不等于条目不增）。
+    非 md 字段（highlights/level）折叠换行为空格——防单条 highlight 用换行伪造多条。
+    md 富文本字段（description/content/summary/skills_md）保留换行——换行是列表结构，
+    折叠会毁掉列表（编辑表单 v3 §3.2）；仅逐行 trim + 去多余空行。
     """
     text = _CONTROL_RE.sub("", text)
+    if _is_md_path(path):
+        lines = [ln.rstrip() for ln in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+        out, blank = [], 0
+        for ln in lines:
+            if ln.strip():
+                out.append(ln); blank = 0
+            elif blank == 0 and out:       # 段落间保留至多一个空行
+                out.append(""); blank = 1
+        return "\n".join(out).strip()
     return re.sub(r"\s*[\r\n]+\s*", " ", text).strip()
 
 
@@ -223,7 +264,7 @@ def apply_patches(
         if path not in allowed:
             rejected.append((path, "路径不在可编辑白名单（疑似越权/造假）"))
             continue
-        _set_at(new, path, _clean_patch_text(text))
+        _set_at(new, path, _clean_patch_text(text, path))
         applied.append(path)
     return PatchOutcome(resume=new, applied=applied, rejected=rejected)
 
