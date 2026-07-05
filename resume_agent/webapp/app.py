@@ -42,6 +42,7 @@ import rubrics
 import role_detect
 from improver import total_score, max_total, fact_gap_report
 from patcher import improve_via_patch
+import polish
 from resume_diff import diff_resume
 from validate import validate_resume
 from llm import make_chat_fn, make_vision_ocr_fn, LLMConfigError
@@ -249,6 +250,12 @@ class RollbackReq(BaseModel):
     version: int
 
 
+class PolishFieldReq(BaseModel):
+    text: str
+    kind: str
+    jd: Optional[str] = None
+
+
 class ReportCreateReq(BaseModel):
     """诊断报告存档：前端诊断成功后落一条只读快照（历史回顾用，不参与任何对比/涨分展示）。"""
     role: str
@@ -327,6 +334,20 @@ def api_improve(req: MatchReq):
                for c in diff_resume(req.resume, improved)]
     return {"before": _report_dict(before), "changes": changes,
             "notes": imp.notes, "must_supplements": imp.must_supplements}
+
+
+@app.post("/api/polish-field")
+def api_polish_field(req: PolishFieldReq):
+    """字段级 AI 润色（编辑表单 v3 §4.8）：重述单段描述已有事实，不新增。
+    <10 字 → 400；数字新增/膨胀 → 400（POLISH_REJECTED）；返回 {md, new_terms}。"""
+    if req.kind not in polish.VALID_KINDS:
+        raise ApiError("BAD_KIND", f"未知 kind：{req.kind}")
+    if len((req.text or "").strip()) < 10:
+        raise ApiError("BAD_INPUT", "内容过短，无法润色（至少 10 字）")
+    try:
+        return polish.polish_field(req.text, req.kind, chat(), req.jd)
+    except ValueError as e:
+        raise ApiError("POLISH_REJECTED", str(e), retryable=True)
 
 
 @app.post("/api/detect-role")

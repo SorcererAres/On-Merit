@@ -87,7 +87,45 @@ def test_patcher_md_keeps_newline_highlights_fold():
     print("OK: md 保留换行 / highlights 折叠 / skills_md 写入 / 越权拒绝")
 
 
+_POLISH_SRC = "负责后端服务，QPS 从 2000 提升到 8000，拆分 3 个微服务"
+
+
+def test_polish_normal_no_false_new_terms():
+    import polish
+    r = polish.polish_field(_POLISH_SRC, "work",
+                            lambda _: "**后端服务**负责人：\n- QPS 由 2000 提升至 8000\n- 拆分 3 个微服务")
+    assert "QPS" in r["md"]
+    assert r["new_terms"] == [], f"同义改写不应报新词：{r['new_terms']}"
+    print("OK: 正常重述无 new_terms 误报")
+
+
+def test_polish_rejects_new_number_and_bloat():
+    import polish
+    for fn, frag in [(lambda _: _POLISH_SRC + "，节省成本 40%", "数字"),
+                     (lambda _: _POLISH_SRC + "，" + "主导团队技术选型与架构演进推动创新落地，" * 4, "膨胀")]:
+        try:
+            polish.polish_field(_POLISH_SRC, "work", fn); assert False
+        except ValueError as e:
+            assert frag in str(e), str(e)
+    try:
+        polish.polish_field("短", "work", lambda _: "x"); assert False
+    except ValueError as e:
+        assert "过短" in str(e)
+    print("OK: 新增数字/膨胀/<10 字 均拒绝")
+
+
+def test_polish_flags_new_concepts():
+    import polish
+    r = polish.polish_field(_POLISH_SRC, "work", lambda _: _POLISH_SRC + "，引入 Kafka 与容灾能力")
+    assert "Kafka" in r["new_terms"]                         # 英文新技术名可靠捕获
+    assert any("容灾" in t for t in r["new_terms"])           # 全新中文概念（字符全不在原文）被提示
+    print("OK: 新概念 Kafka/容灾 进 new_terms 提示（不拒绝）")
+
+
 if __name__ == "__main__":
+    test_polish_normal_no_false_new_terms()
+    test_polish_rejects_new_number_and_bloat()
+    test_polish_flags_new_concepts()
     test_strip_md()
     test_new_fields_enter_text_description_priority()
     test_fairness_boundary_holds()
