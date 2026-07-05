@@ -1,8 +1,11 @@
 // 编辑表单 v3 可复用控件（分节手风琴 / 年月区间 / 标签输入 / 计数文本域 / 条目卡 / 字段行）。
 // 描述字段本期用计数 Textarea（富文本留 E3）。样式取既有 token。
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
-import { ChevronDown, Trash2, Plus, Calendar, X } from "lucide-react";
+import {
+  ChevronDown, Trash2, Plus, Calendar, X,
+  Bold, Italic, List, ListOrdered, Sparkles,
+} from "lucide-react";
 
 /** 分节手风琴：标题 + 可收起 ^；右侧插槽放「移除模块」等 */
 export function AccordionSection({ title, children, right, id }: {
@@ -150,6 +153,81 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
         onChange={(e) => onChange(e.target.value.slice(0, max))}
         className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
       <div className="mt-1 text-right text-[12px] text-muted-foreground">{v.length}/{max}</div>
+    </div>
+  );
+}
+
+/** 迷你富文本（E3 降级方案：Textarea + 工具栏插 md 标记，中栏预览实时渲染）。
+ * 存储即 md 字面（与渲染 resumeBodyMd 读 description 为 md 一致），零序列化风险。
+ * 工具栏对选中文本包裹加粗/斜体标记、行首插列表符；AI 润色/生成为占位（E4/E5 接线）。 */
+export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus, onPolish, onGenerate }: {
+  value?: string; onChange: (v: string) => void; placeholder: string; max?: number;
+  onFocus?: () => void; onPolish?: () => void; onGenerate?: () => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const pendingSel = useRef<[number, number] | null>(null);
+  const v = value ?? "";
+  // 工具栏改 value 后（受控重渲）恢复光标/选区
+  useLayoutEffect(() => {
+    if (pendingSel.current && ref.current) {
+      ref.current.focus();
+      ref.current.setSelectionRange(pendingSel.current[0], pendingSel.current[1]);
+      pendingSel.current = null;
+    }
+  });
+  const apply = (fn: (t: string, s: number, e: number) => { text: string; sel: [number, number] }) => {
+    const ta = ref.current; if (!ta) return;
+    const { text, sel } = fn(v, ta.selectionStart, ta.selectionEnd);
+    pendingSel.current = [Math.min(sel[0], max), Math.min(sel[1], max)];
+    onChange(text.slice(0, max));
+  };
+  const wrap = (mark: string) => apply((t, s, e) => {
+    const sel = t.slice(s, e) || "文本";
+    return { text: t.slice(0, s) + mark + sel + mark + t.slice(e),
+      sel: [s + mark.length, s + mark.length + sel.length] };
+  });
+  const prefixLines = (ordered: boolean) => apply((t, s, e) => {
+    const ls = t.lastIndexOf("\n", s - 1) + 1;
+    const le = t.indexOf("\n", e); const end = le < 0 ? t.length : le;
+    const lines = t.slice(ls, end).split("\n").map((ln, i) => (ordered ? `${i + 1}. ` : "- ") + ln);
+    const nb = lines.join("\n");
+    return { text: t.slice(0, ls) + nb + t.slice(end), sel: [ls, ls + nb.length] };
+  });
+  const TBtn = ({ label, on, children }: { label: string; on: () => void; children: React.ReactNode }) => (
+    <button type="button" aria-label={label} title={label}
+      onMouseDown={(e) => e.preventDefault()} onClick={on}
+      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
+      {children}
+    </button>
+  );
+  const AiChip = ({ label, on }: { label: string; on?: () => void }) => (
+    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!on}
+      title={on ? label : `${label}（即将上线）`}
+      className={cn("flex h-7 items-center gap-1 rounded-full px-2.5 text-[13px]",
+        on ? "text-green-800 hover:opacity-80" : "text-green-800/50 cursor-default")}
+      style={{ background: "var(--green-100)" }}>
+      <Sparkles className="h-3.5 w-3.5" /> {label}
+    </button>
+  );
+  return (
+    <div className="rounded-[8px] border border-border">
+      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+        <TBtn label="加粗" on={() => wrap("**")}><Bold className="h-4 w-4" /></TBtn>
+        <TBtn label="斜体" on={() => wrap("*")}><Italic className="h-4 w-4" /></TBtn>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <TBtn label="无序列表" on={() => prefixLines(false)}><List className="h-4 w-4" /></TBtn>
+        <TBtn label="有序列表" on={() => prefixLines(true)}><ListOrdered className="h-4 w-4" /></TBtn>
+        <div className="ml-auto flex items-center gap-1.5">
+          <AiChip label="AI 润色" on={onPolish} />
+          <AiChip label="AI 生成" on={onGenerate} />
+        </div>
+      </div>
+      <div className="p-3">
+        <textarea ref={ref} value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
+          onChange={(e) => onChange(e.target.value.slice(0, max))}
+          className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        <div className="mt-1 text-right text-[12px] text-muted-foreground">{v.length}/{max}</div>
+      </div>
     </div>
   );
 }

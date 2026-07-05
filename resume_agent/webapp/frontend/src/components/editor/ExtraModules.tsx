@@ -1,8 +1,8 @@
 // 编辑表单 v3 · 扩展模块系统（「添加模块」，方案 §二）：已启用模块节（配置驱动） + 底部添加面板。
 // 「已添加」判定=字段存在；添加=初始化字段并滚动聚焦；移除=删字段（自定义按条目 id 删）。
-// 复用现有字段的模块(awards/volunteer/certificates)旧数据非空时自动视为已添加。描述用计数 Textarea（富文本留 E3）。
+// 复用现有字段的模块(awards/volunteer/certificates)旧数据非空时自动视为已添加。描述用 RichTextarea（工具栏插 md，预览实时渲染）。
 import {
-  AccordionSection, Field, BareInput, MonthRange, CountedTextarea,
+  AccordionSection, Field, BareInput, MonthRange, RichTextarea,
   TagInput, ItemCard, AddButton,
 } from "./formControls";
 import { cn } from "@/lib/cn";
@@ -120,7 +120,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
                 onStart={(v) => { it.startDate = v; bump(); }} onEnd={(v) => { it.endDate = v; bump(); }} />
             )}
             {cfg.date && <MonthCell label="时间" value={it.date} onChange={(v) => { it.date = v; bump(); }} />}
-            <CountedTextarea value={it.description} placeholder="请填写描述"
+            <RichTextarea value={it.description} placeholder="请填写描述"
               onFocus={() => link(it.description)}
               onChange={(v) => { it.description = v; bump(); }} />
           </ItemCard>
@@ -188,7 +188,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
           onBlur={() => touch(`custom_sections[${i}].title`)}
           onChange={(e) => { cs.title = e.target.value; bump(); }} />
       </Field>
-      <CountedTextarea value={cs.content} placeholder="请输入模块正文"
+      <RichTextarea value={cs.content} placeholder="请输入模块正文"
         onFocus={() => link(cs.content)}
         onChange={(v) => { cs.content = v; bump(); }} />
     </AccordionSection>
