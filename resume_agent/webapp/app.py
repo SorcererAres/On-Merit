@@ -43,6 +43,7 @@ import role_detect
 from improver import total_score, max_total, fact_gap_report
 from patcher import improve_via_patch
 import polish
+import generate
 from resume_diff import diff_resume
 from validate import validate_resume
 from llm import make_chat_fn, make_vision_ocr_fn, LLMConfigError
@@ -256,6 +257,12 @@ class PolishFieldReq(BaseModel):
     jd: Optional[str] = None
 
 
+class GenerateFieldReq(BaseModel):
+    kind: str
+    source_text: Optional[str] = None
+    entry_context: Optional[str] = None
+
+
 class ReportCreateReq(BaseModel):
     """诊断报告存档：前端诊断成功后落一条只读快照（历史回顾用，不参与任何对比/涨分展示）。"""
     role: str
@@ -348,6 +355,18 @@ def api_polish_field(req: PolishFieldReq):
         return polish.polish_field(req.text, req.kind, chat(), req.jd)
     except ValueError as e:
         raise ApiError("POLISH_REJECTED", str(e), retryable=True)
+
+
+@app.post("/api/generate-field")
+def api_generate_field(req: GenerateFieldReq):
+    """字段级 AI 生成（编辑表单 v3 §4.9）：有原件→逐句双门槛提取；无原件→按 kind 返回 STAR 骨架。
+    绝不据岗位/公司名虚构。extract 全句被丢 → 400。"""
+    if req.kind not in generate.VALID_KINDS:
+        raise ApiError("BAD_KIND", f"未知 kind：{req.kind}")
+    try:
+        return generate.generate_field(req.kind, chat(), req.source_text, req.entry_context)
+    except ValueError as e:
+        raise ApiError("GENERATE_EMPTY", str(e), retryable=False)
 
 
 @app.post("/api/detect-role")

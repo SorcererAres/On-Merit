@@ -122,7 +122,40 @@ def test_polish_flags_new_concepts():
     print("OK: 新概念 Kafka/容灾 进 new_terms 提示（不拒绝）")
 
 
+_GEN_SRC = ("2022 年在腾讯微电影《归途》担任编剧，独立完成剧本创作，"
+            "协调 4 个部门共 12 人，项目周期 45 天，成片获平台 A 级评级。")
+
+
+def test_generate_template_no_source():
+    import generate
+    for kind in generate.VALID_KINDS:
+        r = generate.generate_field(kind, lambda _: "不该调用", source_text=None)
+        assert r["mode"] == "template" and "[" in r["md"], (kind, r)
+    assert generate.generate_field("work", lambda _: "x", source_text="短")["mode"] == "template"
+    print("OK: 无原件 → 十类 kind 骨架（占位符无事实）")
+
+
+def test_generate_extract_grounds_per_sentence():
+    import generate
+    r = generate.generate_field("project", lambda _: "- 担任编剧，独立完成剧本创作\n- 协调 4 个部门共 12 人",
+                                source_text=_GEN_SRC)
+    assert r["mode"] == "extract" and "编剧" in r["md"]
+    # 掺入原件没有的数字/新概念的句子被丢弃
+    r2 = generate.generate_field("project", lambda _: "- 担任编剧，独立完成剧本创作\n- 引入 AI 剪辑，效率提升 300%",
+                                 source_text=_GEN_SRC)
+    assert "编剧" in r2["md"] and "300%" not in r2["md"] and "AI 剪辑" not in r2["md"]
+    # 全编造 → 400
+    try:
+        generate.generate_field("project", lambda _: "- 获得奥斯卡最佳影片\n- 票房 10 亿美元", source_text=_GEN_SRC)
+        assert False
+    except ValueError as e:
+        assert "未找到" in str(e)
+    print("OK: extract 逐句双门槛——忠实保留 / 掺假句丢弃 / 全编造 400")
+
+
 if __name__ == "__main__":
+    test_generate_template_no_source()
+    test_generate_extract_grounds_per_sentence()
     test_polish_normal_no_false_new_terms()
     test_polish_rejects_new_number_and_bloat()
     test_polish_flags_new_concepts()
