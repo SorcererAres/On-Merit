@@ -8,6 +8,7 @@ import {
   AccordionSection, Field, BareInput, BareSelect, MonthRange,
   TagInput, CountedTextarea, ItemCard, AddButton,
 } from "./formControls";
+import { ExtraModules } from "./ExtraModules";
 import { Alert } from "@/components/ui/misc";
 import { Calendar } from "lucide-react";
 import type { Resume, Education, Work, Project } from "@/types";
@@ -215,6 +216,9 @@ export function SectionEditor() {
           onFocus={() => link(d.skills_md)}
           onChange={(v) => { d.skills_md = v; bump(); }} />
       </AccordionSection>
+
+      {/* 扩展模块 + 添加模块面板 */}
+      <ExtraModules d={d} bump={bump} link={link} errOf={errOf} touch={touch} />
     </div>
   );
 }

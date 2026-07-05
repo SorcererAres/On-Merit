@@ -97,11 +97,19 @@ function hasVal(v: unknown): boolean {
   if (typeof v === "object") return Object.values(v as Record<string, unknown>).some(hasVal);
   return true;
 }
+// 内容承载字段（固定节 + 扩展模块 + v3 新字段）任一有值即非空白——否则只有扩展模块内容的
+// 简历会被误判空白、被导入 CTA 挡住预览。
+const CONTENT_KEYS = [
+  "work", "projects", "education", "skills", "skills_md", "job_intent", "internships",
+  "organizations", "volunteer", "campus", "thesis", "competitions", "awards",
+  "certificates", "custom_sections",
+] as const;
 export function isBlankResume(r: Resume | null): boolean {
   if (!r) return true;
   const b = r.basics || {};
-  const basicsHas = [b.name, b.email, b.phone, b.summary, b.url].some((x) => !!x?.trim?.());
-  return !basicsHas && !hasVal(r.work) && !hasVal(r.projects) && !hasVal(r.education) && !hasVal(r.skills);
+  const basicsHas = [b.name, b.email, b.phone, b.summary, b.url, b.wechat, b.hometown]
+    .some((x) => !!x?.trim?.()) || hasVal(b.tags);
+  return !basicsHas && !CONTENT_KEYS.some((k) => hasVal((r as Record<string, unknown>)[k]));
 }
 
 export function PreviewCanvas({ device, showPolish, onPolish, onImport, printApi }: {
