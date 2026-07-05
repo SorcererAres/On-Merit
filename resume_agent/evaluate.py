@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List
 
 from rubrics import Rubric
 from validate import ensure_valid
+from mdtext import strip_md
 
 ChatFn = Callable[[List[Dict[str, str]]], str]
 
@@ -23,16 +24,29 @@ ChatFn = Callable[[List[Dict[str, str]]], str]
 # --------------------------------------------------------------------------- #
 # resume -> 文本（自带，不依赖 hiring-agent）
 # --------------------------------------------------------------------------- #
+def _body_text(item: Dict[str, Any]) -> str:
+    """经历型条目正文（编辑表单 v3 统一优先级）：description 存在则只读它（剥 md），
+    否则回退旧 summary + highlights。"""
+    if isinstance(item.get("description"), str) and item["description"].strip():
+        return strip_md(item["description"])
+    lines = []
+    if isinstance(item.get("summary"), str) and item["summary"].strip():
+        lines.append(item["summary"].strip())
+    lines += [h for h in (item.get("highlights") or []) if isinstance(h, str) and h.strip()]
+    return "\n".join(lines)
+
+
 def resume_to_text(resume: Dict[str, Any]) -> str:
-    """转评估用文本。公平性：**主动删除**姓名、毕业院校、城市等与能力无关字段，
-    不靠 prompt 约束模型（删除比叮嘱更可靠）。保留雇主名/职位（评估相关，非歧视项）。"""
+    """转评估用文本。公平性：**主动删除**姓名、毕业院校、城市、年龄、性别、籍贯、标签、
+    求职意向、自定义模块等与能力无关或可自由填写的字段（删除比叮嘱更可靠）。
+    保留雇主名/职位、经历描述（评估相关，非歧视项）。新字段读取遵循 description 优先。"""
     parts: List[str] = []
     b = resume.get("basics") or {}
     if b:
         parts.append("=== 基本信息 ===")
-        # 不发送 basics.name（姓名属公平性禁用项）
+        # 不发送 basics.name/gender/birthMonth/hometown/tags（公平性禁用项）
         if b.get("summary"):
-            parts.append(f"简介：{b['summary']}")
+            parts.append(f"简介：{strip_md(b['summary'])}")
         if b.get("url"):
             parts.append(f"个人站/作品集：{b['url']}")
         for p in b.get("profiles") or []:
@@ -45,28 +59,47 @@ def resume_to_text(resume: Dict[str, Any]) -> str:
         for it in items:
             parts.append(fmt(it))
 
-    _entries("工作经历", resume.get("work"), lambda w: (
-        f"- {w.get('name','')} | {w.get('position','')} | "
-        f"{w.get('startDate','')}-{w.get('endDate','')}\n  职责：{w.get('summary','')}\n"
-        + "\n".join(f"  成果：{h}" for h in (w.get('highlights') or []))
-    ))
+    def _exp_fmt(head_fn):
+        return lambda it: f"- {head_fn(it)}\n  {_body_text(it).replace(chr(10), chr(10)+'  ')}".rstrip()
+
+    _entries("工作经历", resume.get("work"), _exp_fmt(
+        lambda w: f"{w.get('name','')} | {w.get('position','')} | {w.get('startDate','')}-{w.get('endDate','')}"))
+    _entries("实习经历", resume.get("internships"), _exp_fmt(
+        lambda w: f"{w.get('name','')} | {w.get('position','')} | {w.get('startDate','')}-{w.get('endDate','')}"))
     _entries("项目", resume.get("projects"), lambda p: (
-        f"- {p.get('name','')} {('('+p['url']+')') if p.get('url') else '（无链接）'}：{p.get('description','')}"
-        + (f" [{', '.join(p.get('technologies') or [])}]" if p.get('technologies') else "")
+        f"- {p.get('name','')} {p.get('role','')} {('('+p['url']+')') if p.get('url') else ''}\n  "
+        + (strip_md(p['description']) if isinstance(p.get('description'), str) and p['description'].strip()
+           else "\n  ".join(h for h in (p.get('highlights') or []) if isinstance(h, str)))
+        + (f"\n  技术：{', '.join(p.get('technologies') or [])}" if p.get('technologies') else "")
+    ).rstrip())
+    _entries("学生会/社团经历", resume.get("organizations"), _exp_fmt(
+        lambda o: f"{o.get('name','')} | {o.get('role','')}"))
+    _entries("志愿经历", resume.get("volunteer"), _exp_fmt(
+        lambda v: f"{v.get('organization','')} | {v.get('position','')}"))
+    _entries("校园大使", resume.get("campus"), _exp_fmt(lambda c: f"{c.get('name','')}"))
+    _entries("毕业设计/论文", resume.get("thesis"), _exp_fmt(lambda t: f"{t.get('title','')}"))
+    _entries("学术竞赛", resume.get("competitions"), _exp_fmt(
+        lambda c: f"{c.get('name','')} | {c.get('award','')}"))
+    _entries("所获荣誉", resume.get("awards"), lambda a: (
+        f"- {a.get('title','')} | {a.get('awarder','')} {a.get('date','')}"
+        + (f"：{a.get('summary') or a.get('note','')}" if (a.get('summary') or a.get('note')) else "")
     ))
-    _entries("志愿经历", resume.get("volunteer"), lambda v: (
-        f"- {v.get('organization','')} | {v.get('position','')}：{v.get('summary','')}"
-    ))
-    _entries("核心能力", resume.get("skills"), lambda s: (
-        f"- {s.get('name','')}：{', '.join(s.get('keywords') or [])}"
-    ))
+    # 技能：skills_md 优先（剥 md），否则结构化 skills[]
+    if isinstance(resume.get("skills_md"), str) and resume["skills_md"].strip():
+        parts.append("\n=== 核心能力 ===")
+        parts.append(strip_md(resume["skills_md"]))
+    else:
+        _entries("核心能力", resume.get("skills"), lambda s: (
+            f"- {s.get('name','')}：{', '.join(s.get('keywords') or [])}"))
     _entries("证书", resume.get("certificates"), lambda c: (
         f"- {c.get('name','')} | {c.get('issuer','')} {c.get('date','')}"
     ))
-    # 教育：不发送 institution（毕业院校属公平性禁用项），只保留学历层次与专业
+    # 教育：不发送 institution（公平性禁用项），保留学历层次/专业 + description
     _entries("教育", resume.get("education"), lambda e: (
         f"- {e.get('studyType','')} {e.get('area','')}"
+        + (f"\n  {strip_md(e['description'])}" if isinstance(e.get('description'), str) and e['description'].strip() else "")
     ))
+    # 不发送 job_intent（意向≠能力证据）/ custom_sections（自由文本，公平性后门）
     return "\n".join(parts)
 
 

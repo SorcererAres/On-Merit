@@ -101,17 +101,28 @@ _IMPACT_RE = re.compile(
 
 
 def _impact_texts(resume: Dict[str, Any]) -> List[str]:
-    """收集成果类字段文本（summary/highlights/description），不扫日期/联系方式。"""
+    """收集成果类字段文本（summary/highlights/description + v3 description/skills_md），
+    不扫日期/联系方式。用于「量化影响」启发式，须能读到新字段里的数字。"""
     out: List[str] = []
-    for sec in ("work", "volunteer"):
+    # 经历型：description 存在则读它，否则 summary+highlights（与 resume_to_text 同优先级）
+    for sec in ("work", "volunteer", "internships", "organizations", "campus", "thesis", "competitions"):
         for it in _dicts(resume, sec):
-            if isinstance(it.get("summary"), str):
-                out.append(it["summary"])
-            out += [h for h in (it.get("highlights") or []) if isinstance(h, str)]
+            if isinstance(it.get("description"), str) and it["description"].strip():
+                out.append(it["description"])
+            else:
+                if isinstance(it.get("summary"), str):
+                    out.append(it["summary"])
+                out += [h for h in (it.get("highlights") or []) if isinstance(h, str)]
     for p in _dicts(resume, "projects"):
-        if isinstance(p.get("description"), str):
+        if isinstance(p.get("description"), str) and p["description"].strip():
             out.append(p["description"])
-        out += [h for h in (p.get("highlights") or []) if isinstance(h, str)]
+        else:
+            out += [h for h in (p.get("highlights") or []) if isinstance(h, str)]
+    for e in _dicts(resume, "education"):
+        if isinstance(e.get("description"), str):
+            out.append(e["description"])
+    if isinstance(resume.get("skills_md"), str):
+        out.append(resume["skills_md"])
     return out
 
 
