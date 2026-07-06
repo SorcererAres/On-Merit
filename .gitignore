@@ -23,6 +23,10 @@ scratchpad/
 # 预览配置（含机器/会话相关路径，不入库）
 .claude/launch.json
 
+# Claude Code 安装的技能：内容由 skills-lock.json 按哈希锁定，可重装，不入库（类比 node_modules）
+.agents/
+.claude/skills/
+
 # 密钥（.env 只入本地，绝不入库；.env.example 是占位模板，要入库）
 .env
 !.env.example
