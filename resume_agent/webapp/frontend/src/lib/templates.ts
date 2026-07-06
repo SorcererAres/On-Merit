@@ -13,12 +13,23 @@ export const DEFAULT_LAYOUT: LayoutSettings = {
   templateId: "classic", fontScale: 1.0, lineHeight: 1.5, themeColor: "ink",
 };
 
-export const TEMPLATES: { id: string; name: string; hint: string }[] = [
-  { id: "classic", name: "经典", hint: "中性 · 分节线" },
+// defaultTheme：选中该模板时顺带设的主题色（可再手动改）；layout 预留双栏引擎（阶段 3）。
+export const TEMPLATES: { id: string; name: string; hint: string; defaultTheme?: string; layout?: "single" | "two-col" }[] = [
+  { id: "classic", name: "标准", hint: "中性 · 分节线" },
+  { id: "cyan", name: "青蓝", hint: "青色节标题 · 左标条", defaultTheme: "teal" },
+  { id: "teal", name: "湛青", hint: "顶部色带 · 居中头部", defaultTheme: "teal" },
+  { id: "aside", name: "简约", hint: "左侧栏 · 浅底", defaultTheme: "teal", layout: "two-col" },
+  { id: "champion", name: "冠军蓝", hint: "深蓝整栏侧边", defaultTheme: "royal", layout: "two-col" },
+  { id: "crimson", name: "典藏红", hint: "左侧栏 · 红点线", defaultTheme: "rose", layout: "two-col" },
   { id: "modern", name: "现代", hint: "强调色 · 左边条" },
   { id: "minimal", name: "极简", hint: "留白 · 无线" },
   { id: "ats", name: "ATS", hint: "朴素 · 易解析" },
 ];
+
+/** 该模板是否双栏（左侧栏 + 右主栏）。双栏走 resumeDoc 的分列渲染 + 跳过分页。 */
+export function isTwoCol(templateId: string): boolean {
+  return TEMPLATES.find((t) => t.id === templateId)?.layout === "two-col";
+}
 
 export const THEME_COLORS: { id: string; hex: string }[] = [
   { id: "ink", hex: "#1a1a1a" }, { id: "teal", hex: "#0d9488" }, { id: "royal", hex: "#1d4ed8" },
@@ -39,7 +50,9 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
   box-shadow:0 2px 12px rgba(0,0,0,.16); position:relative; zoom:var(--fit,1);
   overflow:hidden; /* 屏幕分页后单元超高时不压下页；打印媒体重置为 visible */
   font-size:calc(14px * var(--fs)); line-height:var(--lh); }
-.cv-head{margin-bottom:20px;}
+.cv-head{margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;}
+.cv-head-main{min-width:0;flex:1;}
+.cv-photo{flex:0 0 auto;width:calc(84px * var(--fs));height:calc(84px * var(--fs));object-fit:cover;border-radius:8px;background:var(--line);}
 .cv-head h1{font-size:calc(30px * var(--fs));font-weight:700;line-height:1.15;margin:0;letter-spacing:-.01em;}
 .cv-tagline{margin:6px 0 0;font-size:calc(15px * var(--fs));font-weight:500;}
 .cv-subline{margin:6px 0 0;font-size:calc(12.5px * var(--fs));color:var(--muted);}
@@ -67,8 +80,42 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 @page{size:A4;margin:16mm 14mm;}
 `;
 
+// 双栏骨架：.page.two-col = 左 .col-side + 右 .col-main（各自内边距，侧栏底色拉满页高）。
+// 双栏不参与分页（见 PreviewCanvas），单页超高时纵向增长不裁切。
+const TWO_COL_BASE = `
+.page.two-col{display:flex;gap:0;padding:0;overflow:visible;height:auto;align-items:stretch;}
+.two-col .col-side{flex:0 0 33%;padding:40px 26px;background:var(--side-bg,#f6f7f7);}
+.two-col .col-main{flex:1 1 auto;min-width:0;padding:44px 40px;}
+.two-col .cv-head{display:block;margin:0 0 20px;text-align:left;}
+.two-col .cv-head h1{font-size:calc(23px * var(--fs));}
+.two-col .cv-photo{display:block;width:calc(96px * var(--fs));height:calc(96px * var(--fs));border-radius:10px;margin:0 0 14px;}
+.two-col .col-side h2{margin:18px 0 8px;font-size:calc(13px * var(--fs));border-bottom:none;
+  padding-bottom:0;letter-spacing:.06em;color:var(--accent);}
+.two-col .col-side > *:first-child{margin-top:0;}
+.two-col .col-side ul{padding-left:16px;} .two-col .col-side p{font-size:calc(13px * var(--fs));}
+.two-col .col-main h2:first-of-type{margin-top:0;}
+/* 基础打印规则把 .page min-height 归 auto；双栏需恢复满页高，否则内容短时侧栏底色只到内容底、页面下半留白 */
+@media print{ .page.two-col{overflow:visible;min-height:100vh;} .two-col .col-side{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+`;
+
 const SKINS: Record<string, string> = {
   classic: ``,
+  // 青蓝：节标题用强调色 + 左侧小标条 + 同色下划线（对齐图「青蓝」）
+  cyan: `
+    .cv-head h1{color:var(--accent);}
+    .page h2{color:var(--accent);border-bottom:2px solid var(--accent);padding-bottom:5px;display:flex;align-items:center;gap:8px;}
+    .page h2::before{content:"";flex:0 0 auto;width:4px;height:calc(15px * var(--fs));background:var(--accent);border-radius:1px;}
+    .page a{color:var(--accent);}`,
+  // 湛青：全宽顶部色带（出血到页边）+ 居中头部（照片圆形置顶），正文单栏（对齐图「湛青」）
+  teal: `
+    .cv-head{margin:-56px -64px 24px;padding:34px 64px 26px;background:var(--accent);color:#fff;
+      flex-direction:column;align-items:center;text-align:center;}
+    .cv-head .cv-photo{order:-1;width:calc(76px * var(--fs));height:calc(76px * var(--fs));
+      border-radius:50%;border:3px solid rgba(255,255,255,.7);margin-bottom:8px;}
+    .cv-head h1{color:#fff;}
+    .cv-head .cv-tagline,.cv-head .cv-subline,.cv-head .cv-contact,.cv-head .cv-tags{color:rgba(255,255,255,.88);}
+    .page h2{color:var(--accent);border-bottom:1px solid var(--line);}
+    @media print{ .cv-head{margin:0 0 20px;padding:24px;-webkit-print-color-adjust:exact;print-color-adjust:exact;} }`,
   modern: `
     .cv-head h1{color:var(--accent);}
     .page h2{color:var(--accent);border-bottom:none;padding:0 0 0 10px;border-left:3px solid var(--accent);}
@@ -85,6 +132,31 @@ const SKINS: Record<string, string> = {
     .page h2{border-bottom:1px solid #333;color:#000;text-transform:uppercase;letter-spacing:.02em;
       font-size:calc(13px * var(--fs));}
     .page a{color:#000;}`,
+
+  // 简约（双栏）：浅灰侧栏 + 强调色节标题带小圆点（对齐图「简约」）
+  aside: TWO_COL_BASE + `
+    :root{--side-bg:#f5f6f6;}
+    .two-col .col-main h2{border-bottom:none;color:var(--accent);display:flex;align-items:center;gap:8px;}
+    .two-col .col-main h2::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);}
+    .two-col .col-side .cv-contact,.two-col .col-side .cv-subline{color:#374151;}`,
+
+  // 冠军蓝（双栏）：深色整栏侧边（白字）+ 右主栏大标题（对齐图「冠军蓝」）
+  champion: TWO_COL_BASE + `
+    :root{--side-bg:var(--accent);}
+    .two-col .col-side{color:#fff;}
+    .two-col .col-side h1,.two-col .col-side h2{color:#fff;}
+    .two-col .col-side .cv-tagline,.two-col .col-side .cv-subline,.two-col .col-side .cv-contact,.two-col .col-side .cv-tags{color:rgba(255,255,255,.85);}
+    .two-col .col-side h2{border-bottom:1px solid rgba(255,255,255,.35);padding-bottom:4px;}
+    .two-col .col-side a{color:#fff;}
+    .two-col .col-side li::marker{color:rgba(255,255,255,.6);}
+    .two-col .col-main h2{color:var(--accent);}`,
+
+  // 典藏红（双栏）：浅侧栏 + 红强调 + 主栏节标题红点线（对齐图「典藏红」）
+  crimson: TWO_COL_BASE + `
+    :root{--side-bg:#faf6f6;}
+    .two-col .col-main h2{border-bottom:1px dashed var(--accent);color:var(--accent);}
+    .two-col .col-side h2{color:var(--accent);}
+    .two-col .cv-head h1{color:var(--accent);}`,
 };
 
 export function buildDocCss(layout: LayoutSettings): string {

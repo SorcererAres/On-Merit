@@ -164,7 +164,10 @@ def _collect_text(obj: Any) -> str:
         for v in obj:
             out.append(_collect_text(v))
     elif isinstance(obj, str):
-        out.append(obj)
+        # 内联 data URL（如头像 base64）不是事实文本：base64 几乎含任意数字子串，
+        # 若纳入语料会污染 old_nums，使「禁止编造数字」红线形同虚设，故排除。
+        if not obj.startswith("data:"):
+            out.append(obj)
     return " ".join(out)
 
 

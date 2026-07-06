@@ -13,7 +13,7 @@ export function TemplatesPanel() {
     <div className="min-h-0 flex-1 overflow-y-auto p-4">
       <div className="space-y-2">
         {TEMPLATES.map((t) => (
-          <button key={t.id} onClick={() => setLayout({ templateId: t.id })}
+          <button key={t.id} onClick={() => setLayout({ templateId: t.id, ...(t.defaultTheme ? { themeColor: t.defaultTheme } : {}) })}
             className={cn("w-full rounded-[8px] border p-3 text-left transition",
               layout.templateId === t.id ? "border-primary ring-1 ring-primary" : "border-border hover:border-muted-foreground")}>
             <div className="text-button-14">{t.name}</div>

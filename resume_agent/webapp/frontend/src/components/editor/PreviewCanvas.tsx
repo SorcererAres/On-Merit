@@ -21,7 +21,8 @@ function paginate(idoc: Document) {
   const canvas = idoc.querySelector(".canvas");
   const first = idoc.querySelector<HTMLElement>(".page");
   const win = idoc.defaultView;
-  if (!canvas || !first || !win || idoc.querySelectorAll(".page").length > 1) return;
+  // 双栏（.two-col）不分页：其子元素是 aside/main 两列，分页会把两列切散；单页纵向增长
+  if (!canvas || !first || !win || idoc.querySelectorAll(".page").length > 1 || first.classList.contains("two-col")) return;
   const cs = win.getComputedStyle(first);
   const cap = A4_HEIGHT - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   if (!(cap > 0)) return;

@@ -469,7 +469,7 @@ def _check_data(data: Dict[str, Any]):
 
 
 # 排版设置强校验（防版式破坏 / CSS 注入）：templateId 白名单、数值边界夹取、颜色枚举或严格 hex。
-_TEMPLATE_IDS = {"classic", "modern", "minimal", "ats"}
+_TEMPLATE_IDS = {"classic", "cyan", "teal", "aside", "champion", "crimson", "modern", "minimal", "ats"}
 _THEME_COLORS = {"ink", "teal", "royal", "rose", "forest"}
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 

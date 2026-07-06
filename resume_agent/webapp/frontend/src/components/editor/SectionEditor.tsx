@@ -12,10 +12,66 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { ExtraModules } from "./ExtraModules";
 import { Alert } from "@/components/ui/misc";
 import { MonthPicker } from "@/components/ui/month-picker";
+import { ImageUp } from "lucide-react";
+import { toast } from "sonner";
 import type { Resume, Education, Work, Project } from "@/types";
 
 let _uid = 0;
 const uid = (p: string) => `${p}_${Date.now().toString(36)}_${_uid++}`;
+
+// 头像压缩：任意图片 → 256×256 居中裁切的 JPEG data URL（控制 base64 体量，后端 PHOTO_MAX 兜底）
+function resizePhoto(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const S = 256;
+        const canvas = document.createElement("canvas");
+        canvas.width = S; canvas.height = S;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("canvas 不可用"));
+        const scale = Math.max(S / img.width, S / img.height);   // cover 裁切
+        const w = img.width * scale, h = img.height * scale;
+        ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));   // 污染画布/编码异常在 onload 内抛，须转 reject，否则 await 永挂
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error("图片处理失败"));
+      }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("图片读取失败")); };
+    img.src = url;
+  });
+}
+
+/** 头像上传：预览 + 上传/更换/移除；存 basics.photo（压缩后的 data URL） */
+function PhotoUpload({ value, onChange }: { value?: string; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";   // 允许重复选同一文件
+    if (!f) return;
+    if (!/^image\//.test(f.type)) { toast.error("请选择图片文件"); return; }
+    try { onChange(await resizePhoto(f)); }
+    catch { toast.error("图片处理失败，请换一张"); }
+  };
+  return (
+    <div className="flex items-center rounded-[8px] border border-border px-3 py-2">
+      <span className="w-20 shrink-0 text-copy-14 text-muted-foreground">头像</span>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {value
+          ? <img src={value} alt="头像预览" className="h-12 w-12 rounded-md object-cover" />
+          : <div className="flex h-12 w-12 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageUp className="h-5 w-5" /></div>}
+        <button type="button" onClick={() => ref.current?.click()}
+          className="text-copy-13 text-foreground underline-offset-2 hover:underline">{value ? "更换" : "上传"}</button>
+        {value && <button type="button" onClick={() => onChange("")}
+          className="text-copy-13 text-muted-foreground hover:text-destructive">移除</button>}
+      </div>
+      <input ref={ref} type="file" accept="image/*" aria-label="上传头像" onChange={pick} className="hidden" />
+    </div>
+  );
+}
 // 给条目补稳定 id（React key + 删除不错位）；补在本地草稿上，随保存持久化，后端忽略。
 function ensureIds(r: Resume): Resume {
   for (const sec of ["education", "work", "projects"] as const) {
@@ -72,6 +128,7 @@ export function SectionEditor() {
 
       {/* 基础信息 */}
       <AccordionSection title="基础信息" id="sec-basics">
+        <PhotoUpload value={b.photo} onChange={(v) => { if (v) b.photo = v; else delete b.photo; bump(); }} />
         <Field label="姓名" required error={errOf("basics.name")}>
           <BareInput aria-label="姓名" value={b.name ?? ""} placeholder="请输入姓名"
             onBlur={() => touch("basics.name")}

@@ -42,6 +42,9 @@ import re as _re
 from datetime import datetime as _datetime
 
 _GENDER = {"male", "female"}
+# 头像：仅接受 data:image/(png|jpeg|webp);base64 内联数据 URL（禁 http/javascript: 等外链/脚本通路）
+_PHOTO_RE = _re.compile(r"^data:image/(png|jpe?g|webp);base64,[A-Za-z0-9+/=\s]+$")
+PHOTO_MAX = 400_000        # 头像 base64 上限（约 300KB；前端已压缩成小方图）
 _STUDY_MODE = {"full_time", "part_time"}
 _BIRTH_RE = _re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 # 新引入的多实例模块数组（既有 volunteer/certificates/awards 维持全局 200 上限，不在此列）
@@ -67,6 +70,12 @@ def _check_new_fields(resume: Dict[str, Any]) -> List[str]:
                 errs.append("basics.birthMonth 必须是 YYYY-MM（月份 01–12，年 1900–2100）")
             elif bm > _datetime.now().strftime("%Y-%m"):   # YYYY-MM 字典序即时间序：不晚于当前月
                 errs.append("basics.birthMonth 不能晚于当前月")
+        photo = b.get("photo")
+        if photo is not None:
+            if not isinstance(photo, str) or not _PHOTO_RE.match(photo):
+                errs.append("basics.photo 必须是 data:image/(png|jpeg|webp);base64 内联数据 URL")
+            elif len(photo) > PHOTO_MAX:
+                errs.append(f"basics.photo 过大（{len(photo)} 字符 > {PHOTO_MAX}），请压缩后再上传")
         for f in ("wechat", "hometown"):
             v = b.get(f)
             if v is not None and not isinstance(v, str):
@@ -203,6 +212,8 @@ def _length_errors(resume: Any) -> List[str]:
 
     def walk(node: Any, path: str) -> None:
         nonlocal total
+        if path == "basics.photo":
+            return  # 照片是 base64 图像，不计入文本长度/总量；专项格式与大小校验见 _check_new_fields
         if isinstance(node, str):
             total += len(node)
             if len(node) > MAX_STR_LEN:

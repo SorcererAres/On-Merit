@@ -41,6 +41,7 @@ export interface HeaderData {
   subline: string;             // 性别 · 生日 · 籍贯（privacyMinimal 时空）
   contacts: string[];          // 电话/邮箱/微信/城市/url（privacyMinimal 仅邮箱/电话/url）
   tags: string[];              // #标签（privacyMinimal 时空）
+  photo: string;               // 头像 data URL（privacyMinimal/ats 时空——利于机器解析）
 }
 export function resumeHeaderData(resume: Resume, opts: { privacyMinimal?: boolean } = {}): HeaderData {
   const b = resume.basics || {};
@@ -54,7 +55,8 @@ export function resumeHeaderData(resume: Resume, opts: { privacyMinimal?: boolea
     : [clean(b.email), clean(b.phone), clean(b.wechat), clean(b.location?.city), clean(b.url)]
   ).filter(Boolean);
   const tags = priv ? [] : (b.tags || []).map(clean).filter(Boolean);
-  return { name: clean(b.name) || "姓名", tagline: role, subline: subParts.join("  ·  "), contacts, tags };
+  const photo = priv ? "" : clean(b.photo);   // ats/隐私最小化不放照片（利于机器解析）
+  return { name: clean(b.name) || "姓名", tagline: role, subline: subParts.join("  ·  "), contacts, tags, photo };
 }
 
 // ---- 正文块 ----
@@ -142,43 +144,51 @@ function joinBlocks<X>(arr: X[] | undefined, fn: (x: X) => string): string {
   return (arr || []).map(fn).filter((s) => s.trim()).join("\n\n");
 }
 
-// ---- 正文 md（仅用户内容，无原始 HTML）----
-export function resumeBodyMd(resume: Resume, lang: Lang = "zh"): string {
+// ---- 正文分节（带 key，供单栏 join / 双栏路由复用）----
+// key 用于双栏引擎把各节分到侧栏/主栏（见 resumeDoc.ts SIDE_KEYS）。空节自动跳过。
+export function resumeBodySections(resume: Resume, lang: Lang = "zh"): { key: string; md: string }[] {
   const t = T[lang];
   const p = t.present;
-  const out: string[] = [];
+  const out: { key: string; md: string }[] = [];
+  const push = (key: string, md: string) => { if (md && md.trim()) out.push({ key, md }); };
 
   const ji = resume.job_intent;
   if (ji) {
     const pos = (ji.positions || []).map(clean).filter(Boolean).join("、");
     const body = [pos && `意向岗位：${pos}`, clean(ji.city) && `意向城市：${clean(ji.city)}`].filter(Boolean).join("\n\n");
-    out.push(section(t.intent, body));
+    push("intent", section(t.intent, body));
   }
-  out.push(section(t.summary, mdField(resume.basics?.summary)));
-  out.push(section(t.metrics, metricsTable(resume, t)));
-  out.push(section(t.exp, joinBlocks(resume.work, (w) => workBlock(w, p))));
-  out.push(section(t.intern, joinBlocks(resume.internships, (w) => workBlock(w, p))));
-  out.push(section(t.proj, joinBlocks(resume.projects, (x) => projBlock(x, p))));
-  out.push(section(t.org, joinBlocks(resume.organizations, (o) => orgBlock(o, p))));
-  out.push(section(t.volunteer, joinBlocks(resume.volunteer, (v) => volunteerBlock(v, p))));
-  out.push(section(t.campus, joinBlocks(resume.campus, (c) => campusBlock(c, p))));
-  out.push(section(t.thesis, joinBlocks(resume.thesis, thesisBlock)));
-  out.push(section(t.comp, joinBlocks(resume.competitions, compBlock)));
-  out.push(section(t.awards, joinBlocks(resume.awards, awardBlock)));
+  push("summary", section(t.summary, mdField(resume.basics?.summary)));
+  push("metrics", section(t.metrics, metricsTable(resume, t)));
+  push("exp", section(t.exp, joinBlocks(resume.work, (w) => workBlock(w, p))));
+  push("intern", section(t.intern, joinBlocks(resume.internships, (w) => workBlock(w, p))));
+  push("proj", section(t.proj, joinBlocks(resume.projects, (x) => projBlock(x, p))));
+  push("org", section(t.org, joinBlocks(resume.organizations, (o) => orgBlock(o, p))));
+  push("volunteer", section(t.volunteer, joinBlocks(resume.volunteer, (v) => volunteerBlock(v, p))));
+  push("campus", section(t.campus, joinBlocks(resume.campus, (c) => campusBlock(c, p))));
+  push("thesis", section(t.thesis, joinBlocks(resume.thesis, thesisBlock)));
+  push("comp", section(t.comp, joinBlocks(resume.competitions, compBlock)));
+  push("awards", section(t.awards, joinBlocks(resume.awards, awardBlock)));
   // 技能：skills_md 优先，回退结构化 skills[]
-  out.push(section(t.skills, nonEmpty(resume.skills_md) ? mdField(resume.skills_md) : skillsBlock(resume.skills || [])));
-  out.push(section(t.edu, (resume.education || []).map(eduBlock).join("\n")));
+  push("skills", section(t.skills, nonEmpty(resume.skills_md) ? mdField(resume.skills_md) : skillsBlock(resume.skills || [])));
+  push("edu", section(t.edu, (resume.education || []).map(eduBlock).join("\n")));
 
   const certs = (resume.certificates || []) as { name?: string; issuer?: string }[];
-  out.push(section(t.certs, certs.map((c) => {
+  push("certs", section(t.certs, certs.map((c) => {
     const n = clean(c.name), i = clean(c.issuer);
     return n || i ? `- ${n}${i ? `  —  ${i}` : ""}` : "";
   }).filter(Boolean).join("\n")));
 
   // 自定义模块：各自标题 + 内容
   for (const cs of (resume.custom_sections || []) as CustomSection[]) {
-    if (nonEmpty(cs.content) || clean(cs.title)) out.push(section(clean(cs.title) || "自定义模块", mdField(cs.content)));
+    if (nonEmpty(cs.content) || clean(cs.title)) push("custom", section(clean(cs.title) || "自定义模块", mdField(cs.content)));
   }
 
-  return out.filter(Boolean).join("\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+  return out;
+}
+
+// ---- 正文 md（单栏：各节顺序 join；仅用户内容，无原始 HTML）----
+export function resumeBodyMd(resume: Resume, lang: Lang = "zh"): string {
+  return resumeBodySections(resume, lang).map((s) => s.md)
+    .join("\n\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
 }

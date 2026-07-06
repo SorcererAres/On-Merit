@@ -7,6 +7,7 @@ export interface Basics {
   // 编辑表单 v3 新增（见 docs/plans/resume-edit-form-v3.md）
   gender?: "male" | "female"; birthMonth?: string; wechat?: string;
   hometown?: string; tags?: string[];
+  photo?: string;   // 头像：data:image/...;base64 内联数据 URL（前端压缩成小方图）
 }
 export interface Work {
   name?: string; position?: string; startDate?: string; endDate?: string;
