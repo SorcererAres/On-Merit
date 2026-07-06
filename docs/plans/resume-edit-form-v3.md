@@ -228,7 +228,7 @@ E1 必须逐一改造并带测试,缺一即为旧字段盲区:
 - **work**:编辑器打开时无 description → 由 summary+highlights 合成 md 初值(段落+列表);
   此后只写 description(summary/highlights 保留原值不再编辑;渲染优先 description)。
 - **skills**:无 skills_md → 由 skills[] 合成 md 初值(`**name**:keywords` 列表);同上。
-- **日期**:控件优先 `<input type="month">` + 「至今」勾选;**现值非 `YYYY-MM` 且非空
+- **日期**:控件优先组件库 `MonthPicker`(年月网格,见 §四.4) + 「至今」勾选;**现值非 `YYYY-MM` 且非空
   (如「2023」「至今」「2018.10」)时该输入框回退为文本 Input**(旧值原样可见可改,
   不静默丢失);可解析变体(`2018.10`/`2018/10`)载入时规范化为 `2018-10`。
 - **studyType**:旧值不在枚举 → Select 动态追加「旧值」选项,不丢不改。
@@ -246,8 +246,15 @@ E1 必须逐一改造并带测试,缺一即为旧字段盲区:
    表单失焦渲染红框+红文案;**EditorPage 在「诊断」与「下载」动作前调用同一函数**,
    有错则顶栏下黄条列缺项、点击滚动到对应节(store.resume 即唯一真相,
    无需新增跨组件状态)。校验不阻断 autosave(草稿照存)。
-4. **年月控件**:`<input type="month">` + 结束月「至今」勾选(存字面「至今」,渲染照旧);
-   旧值不可解析时回退文本 Input(§3.5)。
+4. **年月控件**:组件库 `MonthPicker`(`components/ui/month-picker.tsx`)——shadcn `Popover`
+   (Radix primitive,入库 `components/ui/popover.tsx`)+ shadcn 风格「年份步进 + 12 宫格月份」
+   网格;触发器为无边框字段单元(显示「YYYY年MM月」,空态占位),存储恒 `YYYY-MM`。
+   结束月「至今」勾选(存字面「至今」,渲染照旧);旧值不可解析时**该控件内部**回退文本 Input
+   (§3.5,不静默丢值)。无障碍:方向键在 12 格间移焦、`aria-pressed`/`aria-label`、聚焦环;
+   选中即回填并关弹层。**简历为年月粒度,不引 `react-day-picker`(日粒度,用不上则为死依赖);
+   仅新增 `@radix-ui/react-popover` 一个依赖。**
+   ~~原生 `<input type="month">`~~:E2a 曾用,因原生 picker 指示器被样式藏掉、装饰图标
+   `pointer-events-none` 不可点而无法唤起,已废弃,改用上述组件库方案。
 5. **标签输入**:回车/逗号添加 chip,退格删末枚,上限 8。
 6. **富文本工具栏**:B / I / •列表 / 1.列表 + 「AI润色」「AI生成」绿色胶囊;右下角字数 N/1000。
 7. **联动保留**:字段聚焦 → setLinkQuery;编辑实时写 store(clone+bump),

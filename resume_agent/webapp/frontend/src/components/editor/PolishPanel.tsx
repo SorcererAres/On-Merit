@@ -6,6 +6,7 @@ import { postJSON } from "@/lib/api";
 import { useTask } from "@/lib/useTask";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Alert } from "@/components/ui/misc";
 import { TaskStatus } from "@/components/TaskStatus";
 import type { Change, ApplyResult, Patch } from "@/types";
@@ -91,7 +92,7 @@ export function PolishPanel() {
           {changes.length > 0 && (
             <div className="mb-2 flex items-center gap-3">
               <label className="flex items-center gap-2 text-label-13">
-                <input type="checkbox" className="h-4 w-4 accent-primary" aria-label="全选"
+                <Checkbox aria-label="全选"
                   checked={chosen === changes.length && changes.length > 0}
                   onChange={(e) => setAccepted(e.target.checked
                     ? Object.fromEntries(changes.map((_, i) => [i, true])) : {})} />
@@ -106,7 +107,7 @@ export function PolishPanel() {
               {c.old && <del className="block text-copy-13 text-muted-foreground">{c.old}</del>}
               <ins className="mt-1 block text-copy-13 text-green-900 no-underline">{c.new}</ins>
               <label className="mt-2 flex items-center gap-2 text-label-13">
-                <input type="checkbox" className="h-4 w-4 accent-primary" aria-label={`采纳第 ${i + 1} 条`}
+                <Checkbox aria-label={`采纳第 ${i + 1} 条`}
                   checked={accepted[i] ?? false} onChange={(e) => setAccepted({ ...accepted, [i]: e.target.checked })} />
                 采纳这条
               </label>

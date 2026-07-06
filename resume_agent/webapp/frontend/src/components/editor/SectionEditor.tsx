@@ -10,7 +10,7 @@ import {
 } from "./formControls";
 import { ExtraModules } from "./ExtraModules";
 import { Alert } from "@/components/ui/misc";
-import { Calendar } from "lucide-react";
+import { MonthPicker } from "@/components/ui/month-picker";
 import type { Resume, Education, Work, Project } from "@/types";
 
 let _uid = 0;
@@ -81,12 +81,8 @@ export function SectionEditor() {
           </BareSelect>
         </Field>
         <Field label="生日">
-          <div className="flex items-center gap-1">
-            <input type="month" aria-label="生日" value={b.birthMonth ?? ""}
-              onChange={(e) => { b.birthMonth = e.target.value; bump(); }}
-              className="w-full bg-transparent py-2.5 text-[14px] text-foreground focus:outline-none [&::-webkit-calendar-picker-indicator]:opacity-0" />
-            <Calendar className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground" />
-          </div>
+          <MonthPicker value={b.birthMonth} ariaLabel="生日" placeholder="选择出生年月"
+            onChange={(v) => { b.birthMonth = v; bump(); }} />
         </Field>
         <div onBlur={() => touch("basics.contact")}>
           <Field label="电话" error={errOf("basics.contact")}>

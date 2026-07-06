@@ -6,7 +6,8 @@ import {
   TagInput, ItemCard, AddButton,
 } from "./formControls";
 import { cn } from "@/lib/cn";
-import { Plus, Trash2, Calendar } from "lucide-react";
+import { MonthPicker } from "@/components/ui/month-picker";
+import { Plus, Trash2 } from "lucide-react";
 import type { Resume } from "@/types";
 
 type Rec = Record<string, any>;
@@ -59,15 +60,10 @@ const LABEL: Record<string, string> = {
 };
 
 function MonthCell({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
-  const legacy = !!value && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+  // 组件库 MonthPicker（§四.4）：旧值非 YYYY-MM 的文本回退由其内部处理
   return (
     <Field label={label}>
-      <div className="flex items-center gap-1">
-        <input type={legacy ? "text" : "month"} aria-label={label} value={value ?? ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="w-full bg-transparent py-2.5 text-[14px] text-foreground focus:outline-none [&::-webkit-calendar-picker-indicator]:opacity-0" />
-        <Calendar className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground" />
-      </div>
+      <MonthPicker value={value} onChange={onChange} placeholder="选择年月" ariaLabel={label} />
     </Field>
   );
 }

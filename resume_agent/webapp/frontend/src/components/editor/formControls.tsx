@@ -5,9 +5,11 @@ import { cn } from "@/lib/cn";
 import { postJSON } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { MonthPicker } from "@/components/ui/month-picker";
 import { toast } from "sonner";
 import {
-  ChevronDown, Trash2, Plus, Calendar, X,
+  ChevronDown, Trash2, Plus, X,
   Bold, Italic, List, ListOrdered, Sparkles, Loader2,
 } from "lucide-react";
 
@@ -33,13 +35,17 @@ export function AccordionSection({ title, children, right, id }: {
   );
 }
 
+/** 容器级焦点环：裸控件 outline-none 压掉了全局 :focus-visible，环改画在拥有边框的行容器上
+ * （has-[:focus-visible] 仅键盘可见性聚焦时亮，规格同 ui/Input 的两层环）。 */
+const FOCUS_RING = "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background";
+
 /** 字段行：左标签 + 右控件，错误态红框红字（label 带 * 表必填） */
 export function Field({ label, required, error, children }: {
   label: string; required?: boolean; error?: string; children: React.ReactNode;
 }) {
   return (
     <div>
-      <div className={cn("flex items-center rounded-[8px] border px-3",
+      <div className={cn("flex items-center rounded-[8px] border px-3", FOCUS_RING,
         error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 py-2.5 text-[14px] text-muted-foreground">
           {label}{required && <span className="ml-0.5 text-destructive">*</span>}
@@ -64,21 +70,7 @@ export function BareSelect(p: React.SelectHTMLAttributes<HTMLSelectElement>) {
   );
 }
 
-/** 年月区间：开始/结束 month + 结束「至今」。旧值非 YYYY-MM 时回退文本框（可见可改，不丢值）。 */
-const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
-function MonthInput({ value, onChange, placeholder }: {
-  value?: string; onChange: (v: string) => void; placeholder: string;
-}) {
-  const legacy = !!value && !MONTH.test(value);   // 旧自由文本 → 文本框回退
-  return (
-    <div className="flex items-center gap-1">
-      <input type={legacy ? "text" : "month"} value={value ?? ""} placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:outline-none [&::-webkit-calendar-picker-indicator]:opacity-0" />
-      <Calendar className="pointer-events-none h-4 w-4 shrink-0 text-muted-foreground" />
-    </div>
-  );
-}
+/** 年月区间：开始/结束用组件库 MonthPicker + 结束「至今」勾选（勾选存字面「至今」，渲染照旧）。 */
 export function MonthRange({ label, start, end, onStart, onEnd, error }: {
   label: string; start?: string; end?: string;
   onStart: (v: string) => void; onEnd: (v: string) => void; error?: string;
@@ -86,18 +78,18 @@ export function MonthRange({ label, start, end, onStart, onEnd, error }: {
   const present = end === "至今";
   return (
     <div>
-      <div className={cn("flex items-center rounded-[8px] border px-3", error ? "border-destructive" : "border-border")}>
+      <div className={cn("flex items-center rounded-[8px] border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 text-[14px] text-muted-foreground">{label}</label>
         <div className="flex min-w-0 flex-1 items-center">
-          <div className="min-w-0 flex-1"><MonthInput value={start} onChange={onStart} placeholder="开始月份" /></div>
+          <div className="min-w-0 flex-1"><MonthPicker value={start} onChange={onStart} placeholder="开始月份" ariaLabel={`${label}开始月份`} /></div>
           <span className="px-2 text-muted-foreground">–</span>
           <div className="min-w-0 flex-1">
             {present
               ? <div className="flex items-center py-2.5 text-[14px] text-foreground">至今</div>
-              : <MonthInput value={end} onChange={onEnd} placeholder="结束月份" />}
+              : <MonthPicker value={end} onChange={onEnd} placeholder="结束月份" ariaLabel={`${label}结束月份`} />}
           </div>
           <label className="ml-2 flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
-            <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={present}
+            <Checkbox className="h-3.5 w-3.5" checked={present}
               onChange={(e) => onEnd(e.target.checked ? "至今" : "")} />
             至今
           </label>
@@ -120,7 +112,7 @@ export function TagInput({ label, tags, onChange, max = 8, maxLen = 20, placehol
     setDraft("");
   };
   return (
-    <div className="flex items-center rounded-[8px] border border-border px-3">
+    <div className={cn("flex items-center rounded-[8px] border border-border px-3", FOCUS_RING)}>
       <label className="w-20 shrink-0 py-2.5 text-[14px] text-muted-foreground">{label}</label>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1.5">
         {tags.map((t, i) => (
@@ -152,7 +144,7 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
 }) {
   const v = value ?? "";
   return (
-    <div className="rounded-[8px] border border-border p-3">
+    <div className={cn("rounded-[8px] border border-border p-3", FOCUS_RING)}>
       <textarea value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
         onChange={(e) => onChange(e.target.value.slice(0, max))}
         className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
@@ -286,7 +278,7 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     </button>
   );
   return (
-    <div className="rounded-[8px] border border-border">
+    <div className={cn("rounded-[8px] border border-border", FOCUS_RING)}>
       <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
         <TBtn label="加粗" on={() => wrap("**")}><Bold className="h-4 w-4" /></TBtn>
         <TBtn label="斜体" on={() => wrap("*")}><Italic className="h-4 w-4" /></TBtn>

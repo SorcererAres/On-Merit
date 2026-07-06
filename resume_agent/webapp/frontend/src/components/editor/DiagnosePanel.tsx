@@ -8,6 +8,7 @@ import { TaskStatus } from "@/components/TaskStatus";
 import { ScoreCard } from "@/components/ScoreCard";
 import { MatchReportView } from "@/components/MatchReportView";
 import type { EvalResult, MatchReport, Role } from "@/types";
+import { Select, Textarea } from "@/components/ui/input";
 import { Wand2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,18 +69,19 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
         </button>
       </div>
       <div className="relative mt-2">
-        <select id="dg-role" aria-label="评分岗位" value={role} disabled={detect.loading}
+        {/* ui/Select（自带焦点环）；设计稿尺寸 h-9 / rounded-[8px] 用 className 覆盖 */}
+        <Select id="dg-role" aria-label="评分岗位" value={role} disabled={detect.loading}
           onChange={(e) => setRole(e.target.value)}
-          className="h-9 w-full appearance-none rounded-[8px] border border-border bg-background pl-3 pr-9 text-[14px] text-foreground focus:outline-none">
+          className="h-9 min-h-0 w-full appearance-none rounded-[8px] py-0 pl-3 pr-9 text-[14px]">
           {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
-        </select>
+        </Select>
         <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       </div>
 
       <label htmlFor="dg-jd" className="mt-3.5 block text-[14px] leading-[17px] text-foreground">目标 JD</label>
-      <textarea id="dg-jd" rows={4} aria-label="目标岗位 JD" placeholder="粘贴目标职位JD（可留空）⋯"
+      <Textarea id="dg-jd" rows={4} aria-label="目标岗位 JD" placeholder="粘贴目标职位JD（可留空）⋯"
         value={jd} onChange={(e) => setJD(e.target.value)}
-        className="mt-2 h-24 w-full resize-none rounded-[8px] border border-border bg-background px-3 py-3 text-[14px] leading-[1.5] text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        className="mt-2 h-24 resize-none rounded-[8px] py-3 text-[14px] leading-[1.5]" />
 
       <button disabled={analyze.loading || !resume} onClick={runAnalyze}
         className="mt-4 h-9 w-full rounded-[8px] bg-primary text-[14px] text-primary-foreground disabled:opacity-50">
