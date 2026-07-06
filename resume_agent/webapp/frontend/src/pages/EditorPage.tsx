@@ -47,7 +47,7 @@ const SNAP_DEBOUNCE = 600;
 function PanelBar({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
-      <span className="text-button-14 text-foreground">{title}</span>
+      <span className="text-heading-16 text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1">{children}</div>
     </div>
   );
