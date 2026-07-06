@@ -1,0 +1,6 @@
+# webapp 后端依赖（Python ≥3.12；与曾长期运行的环境版本一致）
+# 安装：项目根目录 python3 -m venv .venv && .venv/bin/pip install -r resume_agent/webapp/requirements.txt
+fastapi==0.139.0
+uvicorn==0.50.0
+httpx==0.28.1
+python-multipart==0.0.32
