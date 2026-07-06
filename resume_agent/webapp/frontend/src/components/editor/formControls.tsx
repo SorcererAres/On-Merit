@@ -21,7 +21,7 @@ export function AccordionSection({ title, children, right, id }: {
   return (
     <section id={id} className="border-b border-border px-5 py-4">
       <div className="flex items-center">
-        <h3 className="text-[16px] leading-6 font-semibold text-foreground">{title}</h3>
+        <h3 className="text-heading-16 text-foreground">{title}</h3>
         <div className="ml-auto flex items-center gap-2">
           {right}
           <button aria-label={open ? "收起" : "展开"} onClick={() => setOpen(!open)}
@@ -45,29 +45,21 @@ export function Field({ label, required, error, children }: {
 }) {
   return (
     <div>
-      <div className={cn("flex items-center rounded-[8px] border px-3", FOCUS_RING,
+      <div className={cn("flex min-h-[40px] items-center rounded-[8px] border px-3", FOCUS_RING,
         error ? "border-destructive" : "border-border")}>
-        <label className="w-20 shrink-0 py-2.5 text-[14px] text-muted-foreground">
+        <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">
           {label}{required && <span className="ml-0.5 text-destructive">*</span>}
         </label>
         <div className="min-w-0 flex-1">{children}</div>
       </div>
-      {error && <p className="mt-1 pl-3 text-[12px] text-destructive">{error}</p>}
+      {error && <p className="mt-1 pl-3 text-label-12 text-destructive">{error}</p>}
     </div>
   );
 }
 
-/** 裸输入（嵌在 Field 内，无边框，边框由 Field 提供） */
+/** 裸输入（嵌在 Field 内，无边框，边框由 Field 提供）。下拉一律用 ui/select（shadcn）。 */
 export function BareInput(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...p} className={cn("w-full bg-transparent py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:outline-none", p.className)} />;
-}
-export function BareSelect(p: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <div className="relative">
-      <select {...p} className={cn("w-full appearance-none bg-transparent py-2.5 pr-6 text-[14px] text-foreground focus:outline-none", p.className)} />
-      <ChevronDown className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-    </div>
-  );
+  return <input {...p} className={cn("w-full bg-transparent py-2 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none", p.className)} />;
 }
 
 /** 年月区间：开始/结束用组件库 MonthPicker + 结束「至今」勾选（勾选存字面「至今」，渲染照旧）。 */
@@ -78,24 +70,24 @@ export function MonthRange({ label, start, end, onStart, onEnd, error }: {
   const present = end === "至今";
   return (
     <div>
-      <div className={cn("flex items-center rounded-[8px] border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
-        <label className="w-20 shrink-0 text-[14px] text-muted-foreground">{label}</label>
+      <div className={cn("flex min-h-[40px] items-center rounded-[8px] border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
+        <label className="w-20 shrink-0 text-copy-14 text-muted-foreground">{label}</label>
         <div className="flex min-w-0 flex-1 items-center">
           <div className="min-w-0 flex-1"><MonthPicker value={start} onChange={onStart} placeholder="开始月份" ariaLabel={`${label}开始月份`} /></div>
           <span className="px-2 text-muted-foreground">–</span>
           <div className="min-w-0 flex-1">
             {present
-              ? <div className="flex items-center py-2.5 text-[14px] text-foreground">至今</div>
+              ? <div className="flex items-center py-2 text-copy-14 text-foreground">至今</div>
               : <MonthPicker value={end} onChange={onEnd} placeholder="结束月份" ariaLabel={`${label}结束月份`} />}
           </div>
-          <label className="ml-2 flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
+          <label className="ml-2 flex shrink-0 items-center gap-1 text-label-12 text-muted-foreground">
             <Checkbox className="h-3.5 w-3.5" checked={present}
               onChange={(e) => onEnd(e.target.checked ? "至今" : "")} />
             至今
           </label>
         </div>
       </div>
-      {error && <p className="mt-1 pl-3 text-[12px] text-destructive">{error}</p>}
+      {error && <p className="mt-1 pl-3 text-label-12 text-destructive">{error}</p>}
     </div>
   );
 }
@@ -112,11 +104,11 @@ export function TagInput({ label, tags, onChange, max = 8, maxLen = 20, placehol
     setDraft("");
   };
   return (
-    <div className={cn("flex items-center rounded-[8px] border border-border px-3", FOCUS_RING)}>
-      <label className="w-20 shrink-0 py-2.5 text-[14px] text-muted-foreground">{label}</label>
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1.5">
+    <div className={cn("flex min-h-[40px] items-center rounded-[8px] border border-border px-3", FOCUS_RING)}>
+      <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">{label}</label>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">
         {tags.map((t, i) => (
-          <span key={i} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[12px] text-foreground">
+          <span key={i} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-label-12 text-foreground">
             {t}
             <button aria-label={`删除标签 ${t}`} onClick={() => onChange(tags.filter((_, j) => j !== i))}
               className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
@@ -130,7 +122,7 @@ export function TagInput({ label, tags, onChange, max = 8, maxLen = 20, placehol
               else if (e.key === "Backspace" && !draft && tags.length) onChange(tags.slice(0, -1));
             }}
             onBlur={add}
-            className="min-w-[80px] flex-1 bg-transparent py-1 text-[14px] text-foreground placeholder:text-muted-foreground focus:outline-none" />
+            className="min-w-[80px] flex-1 bg-transparent py-1 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
         )}
       </div>
     </div>
@@ -147,8 +139,8 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
     <div className={cn("rounded-[8px] border border-border p-3", FOCUS_RING)}>
       <textarea value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
         onChange={(e) => onChange(e.target.value.slice(0, max))}
-        className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
-      <div className="mt-1 text-right text-[12px] text-muted-foreground">{v.length}/{max}</div>
+        className="w-full resize-none bg-transparent text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+      <div className="mt-1 text-right text-label-12 text-muted-foreground">{v.length}/{max}</div>
     </div>
   );
 }
@@ -271,7 +263,7 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
   const AiChip = ({ label, on, enabled, busy }: { label: string; on?: () => void; enabled?: boolean; busy?: boolean }) => (
     <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!enabled || busy}
       title={enabled ? label : (polishKind ? `${label}（至少填 10 字）` : `${label}（即将上线）`)}
-      className={cn("flex h-7 items-center gap-1 rounded-full px-2.5 text-[13px]",
+      className={cn("flex h-7 items-center gap-1 rounded-full px-2.5 text-copy-13",
         enabled && !busy ? "text-green-800 hover:opacity-80" : "text-green-800/50 cursor-default")}
       style={{ background: "var(--green-100)" }}>
       {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {label}
@@ -293,8 +285,8 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
       <div className="p-3">
         <textarea ref={ref} value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
           onChange={(e) => onChange(e.target.value.slice(0, max))}
-          className="w-full resize-none bg-transparent text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none" />
-        <div className="mt-1 text-right text-[12px] text-muted-foreground">{v.length}/{max}</div>
+          className="w-full resize-none bg-transparent text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        <div className="mt-1 text-right text-label-12 text-muted-foreground">{v.length}/{max}</div>
       </div>
 
       {result && (
@@ -366,7 +358,7 @@ export function ItemCard({ title, onDelete, children }: {
   return (
     <div className="rounded-[10px] border border-border p-3">
       <div className="mb-2 flex items-center">
-        <span className="truncate text-[14px] font-medium text-foreground">{title}</span>
+        <span className="truncate text-button-14 text-foreground">{title}</span>
         <button aria-label="删除该条" onClick={onDelete}
           className="ml-auto flex h-7 w-7 items-center justify-center text-muted-foreground hover:text-destructive">
           <Trash2 className="h-4 w-4" />
@@ -381,7 +373,7 @@ export function ItemCard({ title, onDelete, children }: {
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <button onClick={onClick}
-      className="flex items-center gap-1.5 text-[14px] font-medium"
+      className="flex items-center gap-1.5 text-button-14"
       style={{ color: "var(--green-700)" }}>
       <Plus className="h-4 w-4" /> {label}
     </button>

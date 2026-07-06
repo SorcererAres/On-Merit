@@ -5,9 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/store/useStore";
 import { validateResumeForm } from "@/lib/validateResumeForm";
 import {
-  AccordionSection, Field, BareInput, BareSelect, MonthRange,
+  AccordionSection, Field, BareInput, MonthRange,
   TagInput, RichTextarea, ItemCard, AddButton,
 } from "./formControls";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ExtraModules } from "./ExtraModules";
 import { Alert } from "@/components/ui/misc";
 import { MonthPicker } from "@/components/ui/month-picker";
@@ -23,9 +24,11 @@ function ensureIds(r: Resume): Resume {
   return r;
 }
 
-const GENDERS = [["", "不填"], ["male", "男"], ["female", "女"]] as const;
+// Radix Select 禁止空串 value，「不填/请选择」用哨兵值映射（存储层仍是 delete 字段）
+const UNSET = "__unset__";
+const GENDERS = [[UNSET, "不填"], ["male", "男"], ["female", "女"]] as const;
 const STUDY_TYPES = ["博士", "硕士", "本科", "大专", "其他"];
-const STUDY_MODES = [["", "不填"], ["full_time", "全日制"], ["part_time", "非全日制"]] as const;
+const STUDY_MODES = [[UNSET, "不填"], ["full_time", "全日制"], ["part_time", "非全日制"]] as const;
 
 export function SectionEditor() {
   const { resume, warnings, usedOcr, editResume, setLinkQuery } = useStore();
@@ -75,10 +78,13 @@ export function SectionEditor() {
             onChange={(e) => { b.name = e.target.value; bump(); }} />
         </Field>
         <Field label="性别">
-          <BareSelect aria-label="性别" value={b.gender ?? ""}
-            onChange={(e) => { const v = e.target.value; if (v) b.gender = v as any; else delete b.gender; bump(); }}>
-            {GENDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </BareSelect>
+          <Select value={b.gender ?? UNSET}
+            onValueChange={(v) => { if (v === UNSET) delete b.gender; else b.gender = v as "male" | "female"; bump(); }}>
+            <SelectTrigger bare aria-label="性别"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {GENDERS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </Field>
         <Field label="生日">
           <MonthPicker value={b.birthMonth} ariaLabel="生日" placeholder="选择出生年月"
@@ -119,18 +125,25 @@ export function SectionEditor() {
                   onChange={(ev) => { e.institution = ev.target.value; bump(); }} />
               </Field>
               <Field label="学历">
-                <BareSelect aria-label={`教育 ${i + 1} 学历`} value={e.studyType ?? ""}
-                  onChange={(ev) => { e.studyType = ev.target.value || undefined; bump(); }}>
-                  <option value="">请选择学历</option>
-                  {STUDY_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  {e.studyType && !STUDY_TYPES.includes(e.studyType) && <option value={e.studyType}>{e.studyType}</option>}
-                </BareSelect>
+                <Select value={e.studyType ?? UNSET}
+                  onValueChange={(v) => { e.studyType = v === UNSET ? undefined : v; bump(); }}>
+                  <SelectTrigger bare aria-label={`教育 ${i + 1} 学历`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNSET}>请选择学历</SelectItem>
+                    {STUDY_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    {/* §3.5 旧值不在枚举 → 动态追加，不丢不改 */}
+                    {e.studyType && !STUDY_TYPES.includes(e.studyType) && <SelectItem value={e.studyType}>{e.studyType}</SelectItem>}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="学制">
-                <BareSelect aria-label={`教育 ${i + 1} 学制`} value={e.studyMode ?? ""}
-                  onChange={(ev) => { const v = ev.target.value; if (v) e.studyMode = v as any; else delete e.studyMode; bump(); }}>
-                  {STUDY_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </BareSelect>
+                <Select value={e.studyMode ?? UNSET}
+                  onValueChange={(v) => { if (v === UNSET) delete e.studyMode; else e.studyMode = v as any; bump(); }}>
+                  <SelectTrigger bare aria-label={`教育 ${i + 1} 学制`}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STUDY_MODES.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="专业">
                 <BareInput aria-label={`教育 ${i + 1} 专业`} value={e.area ?? ""} placeholder="请输入专业名称"

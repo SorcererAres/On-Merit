@@ -12,6 +12,16 @@ export interface Diagnosis {
   match: MatchReport | null;
 }
 
+// 诊断报告的语境戳：报告的真实输入（简历内容版本 + JD + role）+ 生成时刻。
+// 过期判据 = 当前 { contentSeq, jd, role } 与此不一致（jd/role 按值比较）。见 plan §三。
+export interface DiagnosisStamp {
+  contentSeq: number; jd: string; role: string; at: number;
+}
+export interface DiagnosisEntry {
+  report: Diagnosis;
+  stamp: DiagnosisStamp;
+}
+
 export interface ResumeRecord {
   id: string; title: string; role: string; jd: string;
   data: Resume; export_md?: string | null; source_text?: string | null;
@@ -41,7 +51,8 @@ interface State {
   sourceText: string | null;
   linkQuery: string | null;
   layoutSettings: LayoutSettings;
-  diagnosis: Diagnosis | null;
+  diagnosis: DiagnosisEntry | null;
+  contentSeq: number;   // 简历内容版本号：仅内容变更自增（排版/标题不动），驱动诊断报告过期判定
   improve: { changes: Change[]; notes: string[]; supplements: string[] } | null;
 
   // —— 持久化绑定 ——
@@ -63,7 +74,7 @@ interface State {
   setRole: (role: string) => void;
   setTitle: (title: string) => void;
   setLayout: (patch: Partial<LayoutSettings>) => void;
-  setDiagnosis: (d: Diagnosis) => void;
+  setDiagnosis: (entry: DiagnosisEntry) => void;
   applyResume: (r: Resume) => void;
   setImprove: (changes: Change[], notes: string[], supplements: string[]) => void;
   restoreSnapshot: (snap: Snapshot) => void;
@@ -75,18 +86,22 @@ interface State {
 const bump = (extra: Partial<State> = {}) =>
   (s: State): Partial<State> => ({ ...extra, editSeq: s.editSeq + 1, dirty: true });
 
-// 外部替换文档内容（导入/采纳改写）：除 bump 外还 +hydrationKey。
-// layout 与内容正交，不随 data 变更失效。
+// 简历「内容」变更：在 bump 基础上 +contentSeq（触发诊断报告过期）。仅内容类动作用它，排版/标题不用。
+const bumpContent = (extra: Partial<State> = {}) =>
+  (s: State): Partial<State> => ({ ...extra, editSeq: s.editSeq + 1, contentSeq: s.contentSeq + 1, dirty: true });
+
+// 外部替换文档内容（导入/采纳改写）：内容变更 → +contentSeq（诊断报告标记过期，不销毁）；+hydrationKey 重挂编辑列。
+// improve（AI 润色结果）仍随外部替换清空（范围外，行为不变）。layout 与内容正交，不随 data 变更失效。
 const replaceDoc = (r: Resume, extra: Partial<State> = {}) =>
   (s: State): Partial<State> => ({
-    resume: r, diagnosis: null, improve: null,
-    hydrationKey: s.hydrationKey + 1, editSeq: s.editSeq + 1, dirty: true, ...extra,
+    resume: r, improve: null,
+    hydrationKey: s.hydrationKey + 1, editSeq: s.editSeq + 1, contentSeq: s.contentSeq + 1, dirty: true, ...extra,
   });
 
 export const useStore = create<State>((set) => ({
   resume: null, warnings: [], usedOcr: false, jd: "", role: "engineer",
   sourceText: null, linkQuery: null, layoutSettings: DEFAULT_LAYOUT,
-  diagnosis: null, improve: null,
+  diagnosis: null, contentSeq: 0, improve: null,
   resumeId: null, version: 1, title: "", dirty: false,
   editSeq: 0, savedSeq: 0, hydrationKey: 0, loadSeq: 0, layoutSeq: 0, conflict: false,
 
@@ -94,9 +109,10 @@ export const useStore = create<State>((set) => ({
   setLinkQuery: (q) => set({ linkQuery: q }),
   applyResume: (r) => set(replaceDoc(r)),
 
-  editResume: (r) => set(bump({ resume: r, diagnosis: null, improve: null })),
-  setJD: (jd) => set(bump({ jd, diagnosis: null, improve: null })),
-  setRole: (role) => set(bump({ role, diagnosis: null, improve: null })),
+  // 内容变更 → +contentSeq（报告标记过期，不销毁）；jd/role 变更走普通 bump（报告过期由 stamp 按值比较推导）
+  editResume: (r) => set(bumpContent({ resume: r, improve: null })),
+  setJD: (jd) => set(bump({ jd, improve: null })),
+  setRole: (role) => set(bump({ role, improve: null })),
   setTitle: (title) => set(bump({ title })),
   // 样式变更：合并 + 独立 layoutSeq（保存回写精确判定是否被在途新样式覆盖）
   setLayout: (patch) => set((s) => ({
@@ -113,8 +129,8 @@ export const useStore = create<State>((set) => ({
     layoutSettings: snap.layoutSettings,
     sourceText: snap.sourceText, warnings: snap.warnings, usedOcr: snap.usedOcr,
     linkQuery: null,
-    diagnosis: null, improve: null,
-    editSeq: s.editSeq + 1, layoutSeq: s.editSeq + 1, dirty: true,
+    improve: null,   // 撤销/重做属内容变更：报告保留但 +contentSeq → 推导过期（不销毁）
+    editSeq: s.editSeq + 1, contentSeq: s.contentSeq + 1, layoutSeq: s.editSeq + 1, dirty: true,
     hydrationKey: s.hydrationKey + 1,
   })),
 
@@ -124,8 +140,8 @@ export const useStore = create<State>((set) => ({
     sourceText: rec.source_text ?? null, linkQuery: null,
     layoutSettings: { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) },
     warnings: [], usedOcr: false,
-    diagnosis: null, improve: null,
-    editSeq: 0, savedSeq: 0, dirty: false, conflict: false,
+    diagnosis: null, improve: null,   // 换简历：跨简历报告无意义 → 清空；contentSeq 归零同 editSeq
+    editSeq: 0, savedSeq: 0, contentSeq: 0, dirty: false, conflict: false,
     hydrationKey: s.hydrationKey + 1, loadSeq: s.loadSeq + 1, layoutSeq: 0,
   })),
   // 保存成功：savedSeq 推进；title/layout 分字段 savePoint——仅在保存后未再改该字段时采用服务端值。

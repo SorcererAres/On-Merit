@@ -11,9 +11,11 @@ const parse = (v?: string) => {
   const m = v?.match(/^(\d{4})-(\d{2})$/);
   return m ? { y: +m[1], mo: +m[2] } : null;
 };
+// 触发器显示用紧凑格式「YYYY.MM」（存储仍为 YYYY-MM）：条目卡「时间」行两枚并排 + 至今勾选，
+// 「YYYY年MM月」在 440px 左栏下放不下（差 ~8px），紧凑格式余量充足且与简历排版口径一致
 const label = (v?: string) => {
   const p = parse(v);
-  return p ? `${p.y}年${String(p.mo).padStart(2, "0")}月` : v ?? "";
+  return p ? `${p.y}.${String(p.mo).padStart(2, "0")}` : v ?? "";
 };
 
 /** 12 宫格月份网格 + 年份步进。受控：value=`YYYY-MM`，选中即回调并请求关闭。 */
@@ -37,7 +39,7 @@ function MonthGrid({ value, onPick }: { value?: string; onPick: (v: string) => v
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <div className="text-copy-14 font-medium tabular-nums text-foreground">{year}年</div>
+        <div className="text-button-14 tabular-nums text-foreground">{year}年</div>
         <button type="button" aria-label="下一年" onClick={() => setYear((y) => y + 1)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <ChevronRight className="h-4 w-4" />
@@ -77,7 +79,7 @@ export function MonthPicker({ value, onChange, placeholder, ariaLabel }: {
     return (
       <input type="text" value={value ?? ""} placeholder={placeholder} aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        className="w-full bg-transparent py-2 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
     );
   }
   return (
@@ -85,8 +87,8 @@ export function MonthPicker({ value, onChange, placeholder, ariaLabel }: {
       <PopoverTrigger asChild>
         {/* 触发器不自带焦点环：本组件恒嵌在带边框的字段行内，环由容器 has-[:focus-visible]:ring 统一提供（避免双环） */}
         <button type="button" aria-label={ariaLabel}
-          className="flex w-full items-center gap-1 bg-transparent py-2.5 text-left text-[14px] focus-visible:outline-none rounded-sm">
-          <span className={cn("min-w-0 flex-1 truncate", value ? "text-foreground" : "text-muted-foreground")}>
+          className="flex w-full items-center gap-1 bg-transparent py-2 text-left text-copy-14 focus-visible:outline-none rounded-sm">
+          <span className={cn("min-w-0 flex-1 truncate tabular-nums", value ? "text-foreground" : "text-muted-foreground")}>
             {value ? label(value) : placeholder}
           </span>
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />

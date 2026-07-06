@@ -16,13 +16,6 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
       "disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-700", className)} {...p} />
   ));
 Textarea.displayName = "Textarea";
-export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
-  ({ className, ...p }, ref) => (
-    <select ref={ref} className={cn(
-      "rounded-md border border-input bg-background px-3 py-2 text-copy-14 min-h-[40px]",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-      "disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-700", className)} {...p} />
-  ));
-Select.displayName = "Select";
+// 原生 Select 已退役：下拉一律用 ui/select（shadcn Radix Select，自绘弹层）
 export const Label = ({ className, ...p }: React.LabelHTMLAttributes<HTMLLabelElement>) =>
   <label className={cn("block text-label-12 text-muted-foreground mb-1", className)} {...p} />;

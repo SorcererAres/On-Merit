@@ -23,6 +23,7 @@ import { ScoreCard } from "@/components/ScoreCard";
 import { MatchReportView } from "@/components/MatchReportView";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
+import { confirmDialog } from "@/components/confirm";
 import type { Diagnosis } from "@/store/useStore";
 import {
   ArrowLeft, PanelLeft, Columns2, PanelRight,
@@ -46,7 +47,7 @@ const SNAP_DEBOUNCE = 600;
 function PanelBar({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
-      <span className="text-[14px] leading-[22px] font-medium text-foreground">{title}</span>
+      <span className="text-button-14 text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1">{children}</div>
     </div>
   );
@@ -197,11 +198,17 @@ export function EditorPage() {
     if (blocker.state !== "blocked") return;
     (async () => {
       if (useStore.getState().conflict) {
-        if (window.confirm("存在未解决的版本冲突，离开将丢弃你的本地改动。确定离开？")) blocker.proceed();
+        if (await confirmDialog({
+          title: "存在未解决的版本冲突", description: "离开将丢弃你的本地改动。确定离开？",
+          confirmText: "丢弃并离开", destructive: true,
+        })) blocker.proceed();
         else blocker.reset();
         return;
       }
-      if (window.confirm("有未保存的修改。确定=保存后离开；取消=留在本页。")) {
+      if (await confirmDialog({
+        title: "有未保存的修改", description: "可以保存后离开，或留在本页继续编辑。",
+        confirmText: "保存后离开", cancelText: "留在本页",
+      })) {
         const ok = await saveNow();
         if (ok) blocker.proceed();
         else { toast.error("保存未成功，已留在本页"); blocker.reset(); }
@@ -253,7 +260,10 @@ export function EditorPage() {
     catch (e) { toast.error((e as Error).message); setHistOpen(false); }
   };
   const rollback = async (revisionId: string) => {
-    if (!window.confirm("回滚到该版本？当前内容会先自动快照，可再回滚回来。")) return;
+    if (!(await confirmDialog({
+      title: "回滚到该版本？", description: "当前内容会先自动快照，可再回滚回来。",
+      confirmText: "回滚",
+    }))) return;
     if (useStore.getState().dirty) {
       const ok = await saveNow();
       if (!ok) return toast.error("本地修改保存失败，已取消回滚");
@@ -283,8 +293,8 @@ export function EditorPage() {
           </button>
           <input aria-label="简历名称" value={title} onChange={(e) => setTitle(e.target.value)}
             placeholder="未命名简历"
-            className="w-[160px] truncate rounded bg-transparent text-[16px] leading-6 font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-border" />
-          <span className={cn("flex shrink-0 items-center gap-1 text-[12px] leading-[17px]",
+            className="w-[160px] truncate rounded bg-transparent text-heading-16 text-foreground focus:outline-none focus:ring-1 focus:ring-border" />
+          <span className={cn("flex shrink-0 items-center gap-1 text-label-12",
             conflict ? "text-destructive" : "text-muted-foreground")}>
             {!dirty && !saving && !conflict && <Check className="h-3 w-3" />}
             {status} · v{version}
@@ -295,7 +305,7 @@ export function EditorPage() {
         <div className="absolute left-1/2 top-1/2 flex h-8 w-[120px] -translate-x-1/2 -translate-y-1/2 items-center rounded-[8px] bg-muted p-[2px]">
           {([["diagnose", "诊断"], ["layout", "排版"]] as const).map(([m, lbl]) => (
             <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}
-              className={cn("h-7 w-14 rounded-[6px] text-[12px] leading-4",
+              className={cn("h-7 w-14 rounded-[6px] text-label-12",
                 mode === m ? "bg-background text-foreground shadow-card" : "text-muted-foreground")}>
               {lbl}
             </button>
@@ -325,15 +335,15 @@ export function EditorPage() {
               <FileClock className="h-4 w-4" />
             </button>
             <button onClick={() => setImportOpen(true)}
-              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
+              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-copy-14 text-foreground hover:bg-accent/40">
               <Upload className="h-4 w-4" /><span className="pl-1">导入</span>
             </button>
             <button onClick={download}
-              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-[14px] text-foreground hover:bg-accent/40">
+              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-copy-14 text-foreground hover:bg-accent/40">
               <Download className="h-4 w-4" /><span className="pl-1">下载</span>
             </button>
             <button disabled={saving || !dirty || conflict} onClick={() => void saveNow()}
-              className="flex h-8 w-[70px] items-center rounded-[8px] bg-primary pl-2.5 text-[14px] text-primary-foreground disabled:opacity-50">
+              className="flex h-8 w-[70px] items-center rounded-[8px] bg-primary pl-2.5 text-copy-14 text-primary-foreground disabled:opacity-50">
               <Save className="h-4 w-4" /><span className="pl-1">保存</span>
             </button>
           </div>
@@ -373,7 +383,8 @@ export function EditorPage() {
       {/* ===== 三栏 ===== */}
       <div className="flex min-h-0 flex-1">
         {leftOpen && (
-          <aside className="flex w-[360px] shrink-0 flex-col border-r border-border bg-background">
+          // 左栏 440px：条目卡「时间」行（标签 80 + 年月×2 全显「YYYY年MM月」+ 至今勾选）的最小整宽，见 v3 §四.4
+          <aside className="flex w-[440px] shrink-0 flex-col border-r border-border bg-background">
             <PanelBar title={mode === "layout" ? "模板" : "编辑简历"}>
               <IconBtn label="收起" onClick={() => setLeftOpen(false)}><X className="h-4 w-4" /></IconBtn>
             </PanelBar>
@@ -398,7 +409,7 @@ export function EditorPage() {
                 <div className="flex items-center gap-2">
                   {([["diagnose", "诊断", FileText], ["polish", "AI 润色", Sparkles]] as const).map(([v, lbl, Icon]) => (
                     <button key={v} aria-pressed={rightView === v} onClick={() => setRightView(v)}
-                      className={cn("flex h-8 items-center gap-1 rounded-[8px] pl-2 pr-2 text-[14px] leading-6",
+                      className={cn("flex h-8 items-center gap-1 rounded-[8px] pl-2 pr-2 text-copy-14",
                         rightView === v
                           ? "border border-border bg-background text-foreground shadow-card"
                           : "text-foreground hover:bg-accent/40")}>

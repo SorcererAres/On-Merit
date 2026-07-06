@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createBrowserRouter, RouterProvider, Outlet, Navigate, Link, useParams } from "react-router-dom";
 import { Dashboard } from "@/pages/Dashboard";
 import { EditorPage } from "@/pages/EditorPage";
+import { ConfirmHost } from "@/components/confirm";
 import { Button } from "@/components/ui/button";
 import { Moon, Sun } from "lucide-react";
 
@@ -43,5 +44,11 @@ const router = createBrowserRouter([
 ]);
 
 export default function App() {
-  return <RouterProvider router={router} />;
+  return (
+    <>
+      <RouterProvider router={router} />
+      {/* 命令式确认弹窗宿主（confirmDialog 替代 window.confirm），全局仅此一处 */}
+      <ConfirmHost />
+    </>
+  );
 }

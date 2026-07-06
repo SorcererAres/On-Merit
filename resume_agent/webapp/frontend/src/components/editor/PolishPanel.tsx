@@ -75,7 +75,7 @@ export function PolishPanel() {
       </p>
 
       <button disabled={gen.loading || !resume} onClick={runGen}
-        className="mt-3 h-9 w-full rounded-[8px] bg-primary text-[14px] text-primary-foreground disabled:opacity-50">
+        className="mt-3 h-9 w-full rounded-[8px] bg-primary text-copy-14 text-primary-foreground disabled:opacity-50">
         {improve ? "重新生成建议" : "生成修改建议"}
       </button>
       <TaskStatus loading={gen.loading} elapsed={gen.elapsed} stop={gen.stop} error={gen.error} />

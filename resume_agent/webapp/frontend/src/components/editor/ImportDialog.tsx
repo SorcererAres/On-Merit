@@ -9,6 +9,7 @@ import { TaskStatus } from "@/components/TaskStatus";
 import type { Resume, Warning } from "@/types";
 import { Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { confirmDialog } from "@/components/confirm";
 
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { resume, jd, setImported, setRole } = useStore();
@@ -25,7 +26,10 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const submit = async () => {
     if (!file && !text.trim()) return;
     const hasContent = (resume?.work?.length || resume?.basics?.name);
-    if (hasContent && !window.confirm("导入会覆盖当前简历内容（自动保存前会先快照旧版，可回滚）。继续？")) return;
+    if (hasContent && !(await confirmDialog({
+      title: "导入将覆盖当前内容", description: "自动保存前会先快照旧版，可回滚。继续？",
+      confirmText: "继续导入",
+    }))) return;
     // 语境戳（id+loadSeq+editSeq）：切换/重载丢弃在途结果；同简历期间有编辑则再确认覆盖
     const s0 = useStore.getState();
     const start = { id: s0.resumeId, load: s0.loadSeq, seq: s0.editSeq };
@@ -34,7 +38,10 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     const s1 = useStore.getState();
     if (s1.resumeId !== start.id || s1.loadSeq !== start.load) return;  // 语境已换，不写
     if (s1.editSeq !== start.seq
-        && !window.confirm("解析期间你改动了当前简历，导入会覆盖这些改动。继续？")) return;
+        && !(await confirmDialog({
+          title: "简历在解析期间有改动", description: "导入会覆盖这些改动。继续？",
+          confirmText: "仍然导入",
+        }))) return;
     setImported(r.resume, r.warnings, r.usedOcr, r.source_text ?? null);
     toast.success(r.usedOcr ? "已识别（OCR），请重点核对" : "已导入");
     onClose();

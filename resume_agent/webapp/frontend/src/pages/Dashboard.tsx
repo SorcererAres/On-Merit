@@ -9,6 +9,7 @@ import { resumeToDoc } from "@/lib/resumeDoc";
 import { DEFAULT_LAYOUT, type LayoutSettings } from "@/lib/templates";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
+import { confirmDialog } from "@/components/confirm";
 import type { ResumeRecord } from "@/store/useStore";
 import { FilePlus2, Copy, Trash2, ChevronDown } from "lucide-react";
 
@@ -108,7 +109,10 @@ export function Dashboard() {
     catch (e) { toast.error((e as Error).message); }
   };
   const remove = async (id: string, title: string) => {
-    if (!window.confirm(`确定永久删除「${title}」？此操作会一并清除其历史版本，且不可撤销。`)) return;
+    if (!(await confirmDialog({
+      title: `永久删除「${title}」？`, description: "会一并清除其历史版本，且不可撤销。",
+      confirmText: "删除", destructive: true,
+    }))) return;
     try { await delJSON(`/api/resumes/${id}`); toast.success("已删除"); _thumbCache.clear(); refresh(); }
     catch (e) { toast.error((e as Error).message); }
   };
@@ -126,15 +130,15 @@ export function Dashboard() {
 
   return (
     <div className="anim-in mx-auto max-w-[1200px] px-5 py-6 xl:px-0">
-      <h1 className="text-[20px] leading-[30px] font-semibold text-foreground">我的简历</h1>
-      <p className="mt-[5px] text-[14px] leading-5 text-muted-foreground">准备好迎接下一个闪光机会了吗？</p>
+      <h1 className="text-heading-20 text-foreground">我的简历</h1>
+      <p className="mt-[5px] text-copy-14 text-muted-foreground">准备好迎接下一个闪光机会了吗？</p>
 
       {/* 筛选 + 排序 */}
       <div className="mt-6 flex items-center">
         <div className="flex items-center gap-4">
           {CHIPS.map((c) => (
             <button key={c.key} aria-pressed={filter === c.key} onClick={() => setFilter(c.key)}
-              className={cn("h-7 rounded-full px-3.5 text-[12px] leading-4",
+              className={cn("h-7 rounded-full px-3.5 text-label-12",
                 filter === c.key
                   ? "bg-primary text-primary-foreground"
                   : "border border-border bg-background text-foreground hover:bg-accent/40")}>
@@ -143,7 +147,7 @@ export function Dashboard() {
           ))}
         </div>
         <button onClick={() => setSort(sort === "updated" ? "score" : "updated")}
-          className="ml-auto flex h-7 items-center gap-1 rounded-full border border-border px-3 text-[12px] leading-4 text-muted-foreground hover:text-foreground">
+          className="ml-auto flex h-7 items-center gap-1 rounded-full border border-border px-3 text-label-12 text-muted-foreground hover:text-foreground">
           排序：{sort === "updated" ? "按最后更新" : "按评分"}
           <ChevronDown className="h-4 w-4" />
         </button>
@@ -155,8 +159,8 @@ export function Dashboard() {
         <button disabled={busy} onClick={create}
           className="flex h-[256px] flex-col items-center justify-center rounded-2xl bg-muted text-center transition hover:bg-accent/60 disabled:opacity-50">
           <FilePlus2 className="h-10 w-10 text-muted-foreground" strokeWidth={1.5} />
-          <div className="mt-4 text-[16px] leading-6 font-medium text-foreground">新建/导入简历</div>
-          <div className="mt-2 text-[12px] leading-[17px] text-muted-foreground">支持 PDF/Word/ 图片</div>
+          <div className="mt-4 text-heading-16 text-foreground">新建/导入简历</div>
+          <div className="mt-2 text-label-12 text-muted-foreground">支持 PDF/Word/ 图片</div>
         </button>
 
         {list !== null && shown.map((r) => (
@@ -166,13 +170,13 @@ export function Dashboard() {
               aria-label={`打开 ${r.title}`}>
               <Thumb id={r.id} version={r.version} />
               <div className="px-4 pt-4">
-                <div className="truncate text-[16px] leading-6 font-medium text-foreground">
+                <div className="truncate text-heading-16 text-foreground">
                   {r.title || "未命名简历"}
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-[12px] leading-[17px] text-muted-foreground">{relTime(r.updated_at)}</span>
+                  <span className="text-label-12 text-muted-foreground">{relTime(r.updated_at)}</span>
                   {r.latest_score != null && (
-                    <span className="text-[12px] leading-[17px]" style={{ color: "var(--green-700)" }}>
+                    <span className="text-label-12" style={{ color: "var(--green-700)" }}>
                       评分: {Math.round(r.latest_score)}
                     </span>
                   )}

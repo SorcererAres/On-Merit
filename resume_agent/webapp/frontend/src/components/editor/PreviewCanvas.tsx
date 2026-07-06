@@ -225,7 +225,7 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
   };
 
   const tabCls = (t: "preview" | "source") => cn(
-    "flex h-6 items-center gap-1 rounded-[6px] px-1.5 text-[12px] leading-6",
+    "flex h-6 items-center gap-1 rounded-[6px] px-1.5 text-label-12",
     tab === t ? "text-foreground" : "text-muted-foreground hover:text-foreground");
 
   return (
@@ -252,7 +252,7 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
               </button>
               <button aria-label="缩放倍率（点击恢复适应宽度）" title="点击恢复适应宽度"
                 onClick={() => setZoom("fit")}
-                className="min-w-[44px] rounded px-1 text-center text-[12px] leading-6 text-muted-foreground hover:text-foreground">
+                className="min-w-[44px] rounded px-1 text-center text-label-12 text-muted-foreground hover:text-foreground">
                 {zoom === "fit" ? "适应" : `${Math.round(zoom * 100)}%`}
               </button>
               <button aria-label="放大" onClick={() => stepZoom(1)}

@@ -7,6 +7,7 @@ import {
 } from "./formControls";
 import { cn } from "@/lib/cn";
 import { MonthPicker } from "@/components/ui/month-picker";
+import { confirmDialog } from "@/components/confirm";
 import { Plus, Trash2 } from "lucide-react";
 import type { Resume } from "@/types";
 
@@ -76,8 +77,11 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const enabled = (key: string) => key !== "custom_sections" && dd[key] !== undefined;
 
   const scrollTo = (id: string) => setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
-  const removeModule = (key: string, label: string) => {
-    if (!window.confirm(`移除「${label}」将删除该模块已填内容，确定？`)) return;
+  const removeModule = async (key: string, label: string) => {
+    if (!(await confirmDialog({
+      title: `移除「${label}」？`, description: "该模块已填内容将被删除。",
+      confirmText: "移除", destructive: true,
+    }))) return;
     delete dd[key]; bump();
   };
   const add = (key: string) => {
@@ -177,8 +181,11 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const customSections = () => ((dd.custom_sections ?? []) as Rec[]).map((cs, i) => (
     <AccordionSection key={cs.id ?? i} id={`mod-custom-${cs.id}`} title={cs.title || "自定义模块"}
       right={
-        <button aria-label="移除该自定义模块" onClick={() => {
-          if (!window.confirm("移除该自定义模块将删除其内容，确定？")) return;
+        <button aria-label="移除该自定义模块" onClick={async () => {
+          if (!(await confirmDialog({
+            title: "移除该自定义模块？", description: "其内容将被删除。",
+            confirmText: "移除", destructive: true,
+          }))) return;
           (dd.custom_sections as Rec[]).splice(i, 1);
           if (!(dd.custom_sections as Rec[]).length) delete dd.custom_sections;
           bump();
@@ -208,12 +215,12 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
 
       {/* 添加模块面板 */}
       <section className="px-5 py-5">
-        <h3 className="text-[16px] leading-6 font-semibold text-foreground">添加模块</h3>
+        <h3 className="text-heading-16 text-foreground">添加模块</h3>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {panelCards.map((k) => (
             <button key={k} onClick={() => add(k)}
               className={cn("flex items-center justify-between rounded-[10px] border border-border px-4 py-3.5 text-left",
-                "text-[14px] text-foreground transition hover:border-muted-foreground hover:bg-accent/30")}>
+                "text-copy-14 text-foreground transition hover:border-muted-foreground hover:bg-accent/30")}>
               {LABEL[k]}
               <Plus className="h-4 w-4 text-muted-foreground" />
             </button>
