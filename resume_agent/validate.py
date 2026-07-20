@@ -50,10 +50,13 @@ _BIRTH_RE = _re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 # 新引入的多实例模块数组（既有 volunteer/certificates/awards 维持全局 200 上限，不在此列）
 _NEW_ARRAYS = ["internships", "organizations", "campus", "thesis", "competitions", "custom_sections"]
 _NEW_ARRAY_MAX = 20
-# 「添加模块」面板可启用的模块 key（modules_order 成员，custom 走 custom:<id> 形式）
+# modules_order 同时兼容旧编辑器字段名与当前预览模块 key；custom 接受稳定 id，
+# 也接受当前画布使用的数组下标 custom:<index>。
 _MODULE_KEYS = {
     "job_intent", "internships", "organizations", "awards", "volunteer",
     "campus", "thesis", "competitions", "certificates",
+    "intent", "summary", "metrics", "exp", "intern", "proj", "org",
+    "skills", "edu", "certs",
 }
 
 
@@ -180,7 +183,7 @@ def _check_new_fields(resume: Dict[str, Any]) -> List[str]:
         if len(custom_ids) != len(set(custom_ids)):
             errs.append("custom_sections 的 id 必须唯一")
 
-    # 模块顺序 modules_order：已知 key 或 custom:<存在且唯一的 id>，无重复
+    # 模块顺序 modules_order：已知 key，或 custom:<存在的 id / 数组下标>，无重复
     order = resume.get("modules_order")
     if order is not None:
         if not _is_str_list(order):
@@ -190,8 +193,10 @@ def _check_new_fields(resume: Dict[str, Any]) -> List[str]:
                 errs.append("modules_order 不能有重复项")
             for key in order:
                 if key.startswith("custom:"):
-                    if key[len("custom:"):] not in custom_ids:
-                        errs.append(f"modules_order 项 {key} 未引用存在的 custom_sections.id")
+                    custom_ref = key[len("custom:"):]
+                    valid_index = custom_ref.isdigit() and isinstance(custom, list) and int(custom_ref) < len(custom)
+                    if custom_ref not in custom_ids and not valid_index:
+                        errs.append(f"modules_order 项 {key} 未引用存在的 custom_sections.id 或下标")
                 elif key not in _MODULE_KEYS:
                     errs.append(f"modules_order 含未知模块 {key}")
     return errs

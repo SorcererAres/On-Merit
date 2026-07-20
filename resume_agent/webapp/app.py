@@ -30,6 +30,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")   # 已 export 的真实环境变量优先（不覆盖）
 
 ENGINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ENGINE))
@@ -45,6 +48,7 @@ from patcher import improve_via_patch
 import polish
 import generate
 from resume_diff import diff_resume
+# 统一复用引擎校验（包含 modules_order 的新旧模块 key 兼容规则）。
 from validate import validate_resume
 from llm import make_chat_fn, make_vision_ocr_fn, LLMConfigError
 from db import get_repo, NotFound as RepoNotFound, Conflict as RepoConflict
@@ -493,10 +497,15 @@ def _check_layout(ls: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     color = ls.get("themeColor", "ink")
     if not isinstance(color, str) or (color not in _THEME_COLORS and not _HEX_RE.match(color)):
         raise ApiError("BAD_LAYOUT", "themeColor 必须是预设色或 #RRGGBB")
+    page_mode = ls.get("pageMode", "auto")
+    if not isinstance(page_mode, str) or page_mode not in {"auto", "single"}:
+        raise ApiError("BAD_LAYOUT", "pageMode 必须是 auto 或 single")
     return {
         "templateId": tid,
         "fontScale": _clamp(ls.get("fontScale", 1.0), 0.85, 1.25, 1.0),
         "lineHeight": _clamp(ls.get("lineHeight", 1.5), 1.2, 2.0, 1.5),
+        "moduleSpacing": _clamp(ls.get("moduleSpacing", 22), 12, 36, 22),
+        "pageMode": page_mode,
         "themeColor": color,
     }
 

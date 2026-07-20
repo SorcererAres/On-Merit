@@ -27,15 +27,19 @@ def test_unknown_enum_values_rejected():
     _expect_bad({"templateId": "fancy"})
     _expect_bad({"themeColor": "chartreuse"})       # 非预设且非 #RRGGBB
     _expect_bad({"themeColor": "#12"})              # 残缺 hex
+    _expect_bad({"pageMode": "poster"})
 
 
 def test_valid_passthrough_and_numeric_clamp():
     out = app._check_layout({"templateId": "modern", "themeColor": "#a1b2c3",
-                             "fontScale": 9, "lineHeight": 0})
+                             "fontScale": 9, "lineHeight": 0, "moduleSpacing": 99,
+                             "pageMode": "single"})
     assert out["templateId"] == "modern"
     assert out["themeColor"] == "#a1b2c3"
     assert out["fontScale"] == 1.25          # 上夹
     assert out["lineHeight"] == 1.2          # 下夹
+    assert out["moduleSpacing"] == 36        # 上夹
+    assert out["pageMode"] == "single"
     # 非数值 fontScale 回落默认，而非崩溃
     out2 = app._check_layout({"fontScale": "big"})
     assert out2["fontScale"] == 1.0

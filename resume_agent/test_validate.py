@@ -129,7 +129,7 @@ def test_new_fields_valid_full_roundtrip():
         "competitions": [{"name": "竞赛", "award": "一等奖", "description": "x"}],
         "custom_sections": [{"id": "c1", "title": "个人作品", "content": "内容"},
                             {"id": "c2", "title": "其他", "content": "内容"}],
-        "modules_order": ["job_intent", "internships", "custom:c1", "custom:c2"],
+        "modules_order": ["summary", "exp", "proj", "skills", "edu", "certs", "custom:0", "custom:c2"],
     }
     assert validate.validate_resume(r) == [], validate.validate_resume(r)
     print("OK: v3 新字段全字段合法记录通过")
