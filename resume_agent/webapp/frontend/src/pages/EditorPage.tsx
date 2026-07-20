@@ -16,7 +16,7 @@ import { DiagnosePanel } from "@/components/editor/DiagnosePanel";
 import { validateResumeForm } from "@/lib/validateResumeForm";
 import type { FormIssue } from "@/lib/validateResumeForm";
 import { PolishPanel } from "@/components/editor/PolishPanel";
-import { PageLayoutPanel, StylePanel } from "@/components/editor/LayoutPanels";
+import { PageLayoutPanel, EditLayoutPanel, StylePanel } from "@/components/editor/LayoutPanels";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +42,7 @@ import {
   ArrowLeft, PanelLeftOpen, PanelRightOpen, MoreHorizontal,
   Upload, Download, History, FileClock, ChevronLeft,
   FileText, Sparkles, Undo2, Redo2, RefreshCw, CircleAlert, TriangleAlert, ChevronRight,
+  PanelLeft, PanelRight, GalleryVertical, FilePenLine,
 } from "lucide-react";
 
 type Mode = "diagnose" | "layout";
@@ -59,14 +60,14 @@ const SNAP_DEBOUNCE = 600;
 const MOBILE_QUERY = "(max-width: 960px)";
 const RIGHT_DRAWER_QUERY = "(max-width: 1199px)";
 
-/** 面板标题栏（左右栏共用）：44px，标题 14px 中黑 + 右侧图标组 */
+/** 面板标题栏（左右栏共用，样式对齐 Figma 标题Bar）：44px，标题 14px Medium 左距 24px + 右侧图标组 */
 function PanelBar({ title, children, reserveClose = false }: {
   title: string; children?: React.ReactNode; reserveClose?: boolean;
 }) {
   return (
-    <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-4",
+    <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-6",
       reserveClose ? "pr-14" : "pr-4")}>
-      <span className="text-heading-14 text-foreground">{title}</span>
+      <span className="text-heading-14 font-medium text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1">{children}</div>
     </div>
   );
@@ -108,6 +109,11 @@ export function EditorPage() {
   const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches);
   const [rightDrawer, setRightDrawer] = useState(() => typeof window !== "undefined" && window.matchMedia(RIGHT_DRAWER_QUERY).matches);
   const [rightView, setRightView] = useState<RightView>("diagnose");
+  // 左/右栏折叠（仅桌面布局；手机/中屏走 Sheet 不参与）
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  // 编辑模式下左栏视图：编辑简历（分节表单）⇄ 编辑布局（间距 + 模块管理）
+  const [leftView, setLeftView] = useState<"edit" | "layout">("edit");
   const [checkOpen, setCheckOpen] = useState(false);
   const [preflightAction, setPreflightAction] = useState<PreflightAction | null>(null);
   const preflightResolve = useRef<((proceed: boolean) => void) | null>(null);
@@ -131,6 +137,7 @@ export function EditorPage() {
   }, []);
   const openLeft = () => {
     if (mobile) setLeftOpen(true);
+    else setLeftCollapsed(false);
   };
   const setMode = (nextMode: Mode) => {
     if (nextMode === mode) return;
@@ -160,6 +167,7 @@ export function EditorPage() {
     finishPreflight(false);
     setRightOpen(false);
     if (mode !== "diagnose") setMode("diagnose");
+    setLeftView("edit");
     openLeft();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let attempts = 0;
@@ -414,34 +422,99 @@ export function EditorPage() {
     </Tabs>
   );
 
-  const leftTitle = mode === "layout" ? "排版" : "简历内容";
+  const editingLayout = mode !== "layout" && leftView === "layout";
+  const leftTitle = mode === "layout" ? "排版" : editingLayout ? "编辑布局" : "编辑简历";
+
+  // 左栏视图切换分段（Figma 标题Bar v2）：图标 24 盒 + 12px 文字，激活项浅灰胶囊
+  const viewSegment = (view: "edit" | "layout", label: string, icon: React.ReactNode) => {
+    const active = view === "layout" ? editingLayout : !editingLayout;
+    return (
+      <Button type="button" variant="ghost" aria-pressed={active} onClick={() => setLeftView(view)}
+        className={cn("h-7 min-h-7 shrink-0 !gap-0 rounded-header py-0 pl-1 pr-2 text-label-12 text-muted-foreground",
+          "hover:bg-muted active:scale-100", active && "bg-muted")}>
+        <span className="flex h-6 w-6 items-center justify-center text-foreground">{icon}</span>
+        {label}
+      </Button>
+    );
+  };
 
   const leftPanel = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <PanelBar title={leftTitle} reserveClose={mobile} />
+      {mode === "layout" ? (
+        <PanelBar title="排版" reserveClose={mobile}>
+          {!mobile && (
+            <IconBtn label="折叠侧边栏" onClick={() => setLeftCollapsed(true)}
+              className="h-6 w-6 min-h-6 rounded-sm text-foreground hover:bg-muted">
+              <PanelLeft className="h-4 w-4" />
+            </IconBtn>
+          )}
+        </PanelBar>
+      ) : (
+        <div className={cn("flex h-11 shrink-0 items-center gap-2 border-b border-border pl-6",
+          mobile ? "pr-14" : "pr-4")}>
+          {viewSegment("edit", "编辑简历", <FilePenLine className="h-4 w-4" />)}
+          {viewSegment("layout", "编辑布局", <GalleryVertical className="h-4 w-4" />)}
+          {!mobile && (
+            <div className="ml-auto flex items-center">
+              <IconBtn label="折叠侧边栏" onClick={() => setLeftCollapsed(true)}
+                className="h-6 w-6 min-h-6 rounded-sm text-foreground hover:bg-muted">
+                <PanelLeft className="h-4 w-4" />
+              </IconBtn>
+            </div>
+          )}
+        </div>
+      )}
       {mode === "layout"
         ? <PageLayoutPanel />
-        : <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto"><SectionEditor /></div>}
+        : editingLayout
+          ? <EditLayoutPanel />
+          : <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto"><SectionEditor /></div>}
     </div>
+  );
+
+  // 右栏 Tab 胶囊（Figma 标题Bar 1010:226）：28px 高、8px 圆角、图标 24 盒 + 12px 文字，
+  // 字号/配色/衬距与左栏 viewSegment、中栏预览胶囊完全同规格
+  const rightTab = (value: RightView, label: string, icon: React.ReactNode) => (
+    <TabsTrigger value={value}
+      className={cn("h-7 min-h-7 shrink-0 !gap-0 rounded-header py-0 pl-1 pr-2 !text-label-12 text-muted-foreground",
+        "hover:bg-muted data-[state=active]:bg-muted data-[state=active]:text-muted-foreground data-[state=active]:shadow-none")}>
+      <span className="flex h-6 w-6 items-center justify-center text-foreground">{icon}</span>
+      {label}
+    </TabsTrigger>
   );
 
   const rightPanel = (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
       {mode === "layout" ? (
-        <PanelBar title="页面样式" reserveClose={rightDrawer} />
+        <PanelBar title="页面样式" reserveClose={rightDrawer}>
+          {!rightDrawer && (
+            <IconBtn label="折叠侧边栏" onClick={() => setRightCollapsed(true)}
+              className="h-6 w-6 min-h-6 rounded-sm text-foreground hover:bg-muted">
+              <PanelRight className="h-4 w-4" />
+            </IconBtn>
+          )}
+        </PanelBar>
       ) : (
-        <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-2",
-          rightDrawer ? "pr-14" : "pr-2")}>
-          <Tabs value={rightView} onValueChange={(value) => setRightView(value as RightView)} className="min-w-0 flex-1">
-            <TabsList className="w-full bg-muted">
-              <TabsTrigger value="diagnose" className="flex-1 gap-2">
-                <FileText className="h-4 w-4" />AI 诊断
-              </TabsTrigger>
-              <TabsTrigger value="polish" className="flex-1 gap-2">
-                <Sparkles className="h-4 w-4" />AI 润色
-              </TabsTrigger>
+        <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-6",
+          rightDrawer ? "pr-14" : "pr-4")}>
+          <Tabs value={rightView} onValueChange={(value) => setRightView(value as RightView)} className="min-w-0">
+            <TabsList className="min-h-7 gap-2 rounded-none bg-transparent p-0">
+              {rightTab("diagnose", "AI 诊断", <FileText className="h-4 w-4" />)}
+              {rightTab("polish", "AI 润色", <Sparkles className="h-4 w-4" />)}
             </TabsList>
           </Tabs>
+          <div className="ml-auto flex items-center gap-1">
+            <IconBtn label="历史记录" onClick={openHistory}
+              className="h-6 w-6 min-h-6 rounded-sm text-foreground hover:bg-muted">
+              <History className="h-4 w-4" />
+            </IconBtn>
+            {!rightDrawer && (
+              <IconBtn label="折叠侧边栏" onClick={() => setRightCollapsed(true)}
+                className="h-6 w-6 min-h-6 rounded-sm text-foreground hover:bg-muted">
+                <PanelRight className="h-4 w-4" />
+              </IconBtn>
+            )}
+          </div>
         </div>
       )}
       {mode === "layout"
@@ -587,48 +660,76 @@ export function EditorPage() {
           <div className="border-t border-editor-header-border px-4 py-2 md:hidden">{modeTabs}</div>
         </header>
 
-      {conflict && (
-        <Alert tone="red" className="mx-4 mt-3 shrink-0">
-          <b>这份简历已在别处被修改</b>，你的自动保存被拒。请选择：
-          <div className="mt-2 flex gap-2">
-            <Button variant="secondary" onClick={reload}>重新加载（丢弃本地改动）</Button>
-            <Button variant="danger" onClick={overrideMine}>用我的覆盖</Button>
-          </div>
-        </Alert>
-      )}
-
-      {saveError && !retrying && !conflict && (
-        <Alert tone="red" className="mx-4 mt-3 flex shrink-0 items-center gap-3" role="alert">
-          <div className="flex-1"><b>自动保存失败。</b>{saveError}</div>
-          <Button variant="secondary" disabled={saving} onClick={() => void manualSave()}>
-            <RefreshCw className={cn("h-4 w-4", saving && "animate-spin")} />立即重试
-          </Button>
-        </Alert>
-      )}
-
         {/* ===== 编辑 / 预览 / AI（或样式）：宽屏三栏可拖拽，中屏左栏+预览可拖拽，手机纯预览 ===== */}
-        <div className="flex min-h-0 flex-1 isolate">
+        <div className="relative flex min-h-0 flex-1 isolate">
+          {/* 冲突/保存失败：浮动提示卡（不挤压布局；冲突优先于保存失败） */}
+          {(conflict || (saveError && !retrying)) && (
+            <div className="pointer-events-none absolute inset-x-4 top-3 z-30 flex justify-center">
+              <div role="alert"
+                className="anim-in pointer-events-auto flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-control border border-border bg-popover py-2 pl-3 pr-2 shadow-modal">
+                <TriangleAlert className="h-4 w-4 shrink-0 text-destructive" aria-hidden />
+                {conflict ? (
+                  <>
+                    <span className="text-copy-13 text-foreground">这份简历已在别处被修改，自动保存被拒</span>
+                    <span className="flex items-center gap-1.5">
+                      <Button variant="secondary" onClick={reload}
+                        className="!h-7 !min-h-7 rounded-sm px-2.5 !text-button-12">
+                        重新加载（丢弃本地）
+                      </Button>
+                      <Button variant="danger" onClick={overrideMine}
+                        className="!h-7 !min-h-7 rounded-sm px-2.5 !text-button-12">
+                        用我的覆盖
+                      </Button>
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-copy-13 text-foreground">自动保存失败：{saveError}</span>
+                    <Button variant="secondary" disabled={saving} onClick={() => void manualSave()}
+                      className="!h-7 !min-h-7 rounded-sm px-2.5 !text-button-12">
+                      <RefreshCw className={cn("h-4 w-4", saving && "animate-spin")} />重试
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           {mobile ? (
             <PreviewCanvas device={device} showPolish={mode === "diagnose"}
               onImport={() => setImportOpen(true)} printApi={printApi} />
           ) : (
-            <ResizablePanelGroup direction="horizontal" key={rightDrawer ? "2col" : "3col"}
-              autoSaveId={rightDrawer ? "on-merit-editor-2col" : "on-merit-editor-3col"}
+            <ResizablePanelGroup direction="horizontal"
+              key={`${rightDrawer ? "2col" : "3col"}${leftCollapsed ? "-nl" : ""}${rightCollapsed ? "-nr" : ""}`}
+              autoSaveId={`on-merit-editor-${rightDrawer ? "2col" : "3col"}${leftCollapsed ? "-nl" : ""}${rightCollapsed ? "-nr" : ""}`}
               className="min-h-0 flex-1">
-              <ResizablePanel defaultSize={rightDrawer ? 32 : 28} minSize={22} maxSize={42}>
-                <aside aria-label={mode === "layout" ? "排版面板" : "简历编辑面板"}
-                  className="flex h-full min-h-0 w-full flex-col bg-background">
-                  {leftPanel}
-                </aside>
-              </ResizablePanel>
-              <ResizableHandle withHandle />
+              {!leftCollapsed && (
+                <>
+                  <ResizablePanel defaultSize={rightDrawer ? 32 : 28} minSize={22} maxSize={42}>
+                    <aside aria-label={mode === "layout" ? "排版面板" : "简历编辑面板"}
+                      className="flex h-full min-h-0 w-full flex-col bg-background">
+                      {leftPanel}
+                    </aside>
+                  </ResizablePanel>
+                  <ResizableHandle withHandle />
+                </>
+              )}
               <ResizablePanel minSize={30}>
-                <div className="flex h-full min-h-0 w-full flex-col">
-                  <PreviewCanvas device={device} showPolish={mode === "diagnose"}
-                    onImport={() => setImportOpen(true)} printApi={printApi} />
-                </div>
+                <PreviewCanvas device={device} showPolish={mode === "diagnose"}
+                  onImport={() => setImportOpen(true)} printApi={printApi}
+                  leftAccessory={leftCollapsed ? (
+                    <IconBtn label="展开侧边栏" onClick={() => setLeftCollapsed(false)}
+                      className="h-7 w-7 min-h-7 rounded-header text-foreground hover:bg-muted">
+                      <PanelLeft className="h-4 w-4" />
+                    </IconBtn>
+                  ) : undefined}
+                  rightAccessory={!rightDrawer && rightCollapsed ? (
+                    <IconBtn label="展开侧边栏" onClick={() => setRightCollapsed(false)}
+                      className="h-7 w-7 min-h-7 rounded-header text-foreground hover:bg-muted">
+                      <PanelRight className="h-4 w-4" />
+                    </IconBtn>
+                  ) : undefined} />
               </ResizablePanel>
-              {!rightDrawer && (
+              {!rightDrawer && !rightCollapsed && (
                 <>
                   <ResizableHandle withHandle />
                   <ResizablePanel defaultSize={25} minSize={18} maxSize={36}>
@@ -649,7 +750,8 @@ export function EditorPage() {
               <SheetHeader className="sr-only">
                 <SheetTitle>{leftTitle}</SheetTitle>
                 <SheetDescription>
-                  {mode === "layout" ? "选择模板并调整页面布局与模块顺序" : "编辑简历内容"}
+                  {mode === "layout" ? "选择简历模板"
+                    : editingLayout ? "调整分页、间距与模块顺序" : "编辑简历内容"}
                 </SheetDescription>
               </SheetHeader>
               {leftPanel}

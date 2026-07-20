@@ -1,8 +1,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../src/", import.meta.url);
+// fileURLToPath 才能正确解码路径中的空格等转义字符（URL.pathname 会保留 %20）
+const root = fileURLToPath(new URL("../src/", import.meta.url));
 const findings = [];
 
 async function walk(directory) {
@@ -17,14 +19,14 @@ async function walk(directory) {
 function report(file, source, rule, pattern) {
   for (const match of source.matchAll(pattern)) {
     const line = source.slice(0, match.index).split("\n").length;
-    findings.push(`${relative(root.pathname, file)}:${line}  ${rule}: ${match[0]}`);
+    findings.push(`${relative(root, file)}:${line}  ${rule}: ${match[0]}`);
   }
 }
 
-for (const file of await walk(root.pathname)) {
+for (const file of await walk(root)) {
   if (extname(file) !== ".tsx") continue;
   const source = await readFile(file, "utf8");
-  const path = relative(root.pathname, file);
+  const path = relative(root, file);
 
   // shadcn 基础组件内部必须落到原生元素；业务与组合组件不得绕过它们。
   if (path !== "components/ui/button.tsx") {

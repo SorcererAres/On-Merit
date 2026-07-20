@@ -71,6 +71,8 @@ export interface Evaluation {
   bonus_points: { total: number; breakdown: string };
   deductions: { total: number; reasons: string };
   key_strengths: string[]; areas_for_improvement: string[];
+  // 模块级建议（key 与画布 data-resume-module-section 一致），供画布对照卡；旧报告可能缺省
+  section_advice?: Record<string, string[]>;
 }
 export interface EvalResult {
   evaluation: Evaluation; score: number; max: number; gaps: string[]; role_label: string;

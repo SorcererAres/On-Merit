@@ -8,8 +8,7 @@ import {
 import { cn } from "@/lib/cn";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { Button } from "@/components/ui/button";
-import { confirmDialog } from "@/components/confirm";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Resume } from "@/types";
 
 type Rec = Record<string, any>;
@@ -60,6 +59,8 @@ const LABEL: Record<string, string> = {
   ...Object.fromEntries(Object.entries(EXP).map(([k, v]) => [k, v.label])),
   ...Object.fromEntries(Object.entries(SIMPLE).map(([k, v]) => [k, v.label])),
 };
+// 供「编辑布局 → 模块管理」删除空模块时取标签（模块删除入口统一在布局面板）
+export const MODULE_LABEL = LABEL;
 
 function MonthCell({ label, value, onChange }: { label: string; value?: string; onChange: (v: string) => void }) {
   // 组件库 MonthPicker（§四.4）：旧值非 YYYY-MM 的文本回退由其内部处理
@@ -78,13 +79,6 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const enabled = (key: string) => key !== "custom_sections" && dd[key] !== undefined;
 
   const scrollTo = (id: string) => setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }), 40);
-  const removeModule = async (key: string, label: string) => {
-    if (!(await confirmDialog({
-      title: `移除「${label}」？`, description: "该模块已填内容将被删除。",
-      confirmText: "移除", destructive: true,
-    }))) return;
-    delete dd[key]; bump();
-  };
   const add = (key: string) => {
     if (key === "job_intent") dd.job_intent = { positions: [], city: "" };
     else if (key === "custom_sections") (dd.custom_sections ??= []).push({ id: uid("cs"), title: "", content: "" });
@@ -95,18 +89,13 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   };
   const expEntry = (key: string): Rec => ({ id: uid(key), [EXP[key].nameKey]: "" });
 
-  const removeBtn = (key: string, label: string) => (
-    <Button type="button" variant="ghost" aria-label={`移除${label}`} onClick={() => removeModule(key, label)}
-      className="h-11 w-11 px-0 text-muted-foreground hover:text-destructive">
-      <Trash2 className="h-4 w-4" />
-    </Button>
-  );
+  // 模块删除统一收进「编辑布局 → 模块管理」（EditLayoutPanel），表单节标题不再放删除按钮
 
   // 经历型模块节
   const expSection = (key: string) => {
     const cfg = EXP[key]; const arr = (dd[key] ?? []) as Rec[];
     return (
-      <AccordionSection key={key} id={`mod-${key}`} title={cfg.label} right={removeBtn(key, cfg.label)}>
+      <AccordionSection key={key} id={`mod-${key}`} title={cfg.label}>
         {arr.map((it, i) => (
           <ItemCard key={it.id ?? i} title={it[cfg.nameKey] || `未填${cfg.nameLabel}`}
             onDelete={() => { arr.splice(i, 1); bump(); }}>
@@ -143,7 +132,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const simpleSection = (key: string) => {
     const cfg = SIMPLE[key]; const arr = (dd[key] ?? []) as Rec[];
     return (
-      <AccordionSection key={key} id={`mod-${key}`} title={cfg.label} right={removeBtn(key, cfg.label)}>
+      <AccordionSection key={key} id={`mod-${key}`} title={cfg.label}>
         {arr.map((it, i) => (
           <ItemCard key={it.id ?? i} title={it[cfg.fields[0][0]] || `未填${cfg.fields[0][1]}`}
             onDelete={() => { arr.splice(i, 1); bump(); }}>
@@ -169,7 +158,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const jobIntentSection = () => {
     const ji = (dd.job_intent ?? {}) as Rec;
     return (
-      <AccordionSection key="job_intent" id="mod-job_intent" title="求职意向" right={removeBtn("job_intent", "求职意向")}>
+      <AccordionSection key="job_intent" id="mod-job_intent" title="求职意向">
         <TagInput label="求职岗位" tags={ji.positions ?? []} max={5} maxLen={20}
           placeholder="请填写意向岗位，输入后回车添加"
           onChange={(t) => { ji.positions = t; dd.job_intent = ji; bump(); }} />
@@ -183,19 +172,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
 
   // 自定义模块（每条一节，标题可编辑）
   const customSections = () => ((dd.custom_sections ?? []) as Rec[]).map((cs, i) => (
-    <AccordionSection key={cs.id ?? i} id={`mod-custom-${cs.id}`} title={cs.title || "自定义模块"}
-      right={
-        <Button type="button" variant="ghost" aria-label="移除该自定义模块" onClick={async () => {
-          if (!(await confirmDialog({
-            title: "移除该自定义模块？", description: "其内容将被删除。",
-            confirmText: "移除", destructive: true,
-          }))) return;
-          (dd.custom_sections as Rec[]).splice(i, 1);
-          if (!(dd.custom_sections as Rec[]).length) delete dd.custom_sections;
-          bump();
-        }} className="h-11 w-11 px-0 text-muted-foreground hover:text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </Button>}>
+    <AccordionSection key={cs.id ?? i} id={`mod-custom-${cs.id}`} title={cs.title || "自定义模块"}>
       <Field label="模块标题" required path={`custom_sections[${i}].title`}
         error={errOf(`custom_sections[${i}].title`)}>
         <BareInput aria-label={`自定义模块 ${i + 1} 标题`} value={cs.title ?? ""} placeholder="请输入模块标题" maxLength={10}
@@ -219,8 +196,8 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
       {customSections()}
 
       {/* 添加模块面板 */}
-      <section className="px-5 py-5">
-        <h3 className="text-heading-16 text-foreground">添加模块</h3>
+      <section className="px-6 py-5">
+        <h3 className="text-heading-14 font-medium text-foreground">添加模块</h3>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {panelCards.map((k) => (
             <Button key={k} type="button" variant="ghost" onClick={() => add(k)}

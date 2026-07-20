@@ -7,9 +7,11 @@ import { resumeToDoc } from "@/lib/resumeDoc";
 import { SourcePanel } from "./SourcePanel";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
-import { Eye, FileText, FileUp, ZoomIn, ZoomOut } from "lucide-react";
+import { FileText, FileUp, PanelTop, ZoomIn, ZoomOut } from "lucide-react";
 import { toast } from "sonner";
 import type { Resume } from "@/types";
+import { AiBusyPill } from "./AiBusyPill";
+import { useAiBusyStore } from "@/lib/aiBusy";
 import {
   createCanvasInlineEditor, INLINE_BASIC_FIELDS,
   type CanvasInlineSession, type CanvasInlineTarget, type InlineBasicField,
@@ -135,8 +137,8 @@ body.on-merit-inline-edit .is-canvas-editing{cursor:text!important;background:tr
 .canvas-inline-tool:hover,.canvas-inline-tool:focus-visible{background:rgba(112,181,128,.12);color:rgb(26,26,26);outline:none;}
 .canvas-inline-content{box-sizing:border-box;display:block;width:100%;min-height:96px;padding:8px;border:1px solid rgba(74,130,88,.48);border-radius:5px;background:var(--paper);color:inherit;font:inherit;line-height:inherit;cursor:text;outline:none;}
 .canvas-inline-content:focus{border-color:var(--inline-edit);box-shadow:0 0 0 2px rgba(112,181,128,.1);}
-.canvas-inline-subfield{display:inline-block;min-width:20px;padding:1px 4px;border:1px solid rgba(74,130,88,.42);border-radius:4px;background:rgba(112,181,128,.08);outline:none;}
-body.on-merit-inline-edit .is-canvas-editing.canvas-inline-subfield{background:rgba(112,181,128,.08)!important;}
+.canvas-inline-subfield{display:inline-block;min-width:20px;padding:1px 4px;border:1px solid var(--inline-edit);border-radius:4px;background:var(--paper);color:inherit;font:inherit;outline:none;box-shadow:0 0 0 3px rgba(112,181,128,.14);}
+body.on-merit-inline-edit .is-canvas-editing.canvas-inline-subfield{background:var(--paper)!important;box-shadow:0 0 0 3px rgba(112,181,128,.14)!important;}
 .canvas-month-panel{position:fixed;z-index:4;width:276px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--paper);box-shadow:0 8px 24px rgba(35,48,38,.14);}
 .canvas-month-header{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;text-align:center;}
 .canvas-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px;}
@@ -159,6 +161,29 @@ body.on-merit-inline-edit .is-canvas-editing.canvas-inline-subfield{background:r
 body.on-merit-inline-edit [data-resume-module-section].is-module-selected{outline-color:var(--inline-edit-line);}
 body.on-merit-inline-edit [data-resume-entry].is-entry-actions-selected{background:rgba(112,181,128,.08)!important;box-shadow:0 0 0 4px rgba(112,181,128,.08)!important;}
 @media print{html,body{overflow:visible;}.canvas-inline-toolbar,.canvas-module-toolbar,.canvas-inline-basic{display:none!important}body.on-merit-inline-edit [data-resume-section],body.on-merit-inline-edit [data-resume-module-section],body.on-merit-inline-edit [data-resume-field],body.on-merit-inline-edit [data-resume-entry]{outline:none!important;box-shadow:none!important;background:transparent!important;}}
+`;
+
+// 诊断对照卡（右栏报告页打开时注入）：各模块末尾挂「✦ 诊断建议」绿卡，可收起为「查看建议」胶囊。
+// 只存在于编辑器 iframe（srcDoc 不变），缩略图/导出/打印均不带；配色沿用画布内联编辑的绿系。
+const DIAGNOSIS_ADVICE_CSS = `
+.cv-advice{margin-top:10px;}
+.cv-advice-card{border-radius:8px;background:rgba(112,181,128,.13);padding:12px 14px 11px;}
+.cv-advice-head{display:flex;align-items:center;gap:6px;}
+.cv-advice-mark{color:rgb(74,130,88);font-size:13px;line-height:1;}
+.cv-advice-title{color:rgb(74,130,88);font-size:12px;font-weight:600;letter-spacing:.02em;}
+.cv-advice-fold{margin-left:auto;border:0;background:transparent;color:var(--muted);
+  font:inherit;font-size:12px;line-height:1;padding:3px 4px;cursor:pointer;border-radius:4px;}
+.cv-advice-fold:hover{color:var(--accent);background:rgba(112,181,128,.14);}
+.cv-advice-list{margin:8px 0 0;padding:0;list-style:none;counter-reset:cvadvice;}
+.cv-advice-list li{position:relative;margin-top:6px;padding-left:20px;
+  font-size:calc(12.5px * var(--fs));line-height:1.7;color:var(--accent);counter-increment:cvadvice;}
+.cv-advice-list li::before{content:counter(cvadvice) ".";position:absolute;left:2px;color:rgb(74,130,88);font-weight:600;}
+.cv-advice-note{margin-top:10px;font-size:calc(11.5px * var(--fs));color:var(--muted);}
+.cv-advice-toggle{display:flex;justify-content:flex-end;}
+.cv-advice-open{border:1px solid rgba(74,130,88,.35);border-radius:999px;background:rgba(112,181,128,.10);
+  color:rgb(74,130,88);font:inherit;font-size:12px;line-height:1;padding:5px 12px;cursor:pointer;white-space:nowrap;}
+.cv-advice-open:hover{background:rgba(112,181,128,.18);}
+@media print{.cv-advice{display:none!important}}
 `;
 
 type ModuleArrayConfig = { property: keyof Resume; addLabel: string; seed: Record<string, unknown> };
@@ -240,15 +265,25 @@ export function isBlankResume(r: Resume | null): boolean {
   return !basicsHas && !CONTENT_KEYS.some((k) => hasVal((r as Record<string, unknown>)[k]));
 }
 
-export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
+export function PreviewCanvas({ device, showPolish, onImport, printApi, leftAccessory, rightAccessory }: {
   device: "desktop" | "mobile";
   showPolish: boolean;              // 诊断模式提供原件对照 tab
   onImport: () => void;
   printApi: (fn: () => void) => void;   // 上抛打印函数（顶栏「下载」/样式面板「导出 PDF」共用）
+  // 标题栏两端插槽（侧栏折叠时放「展开」按钮；内嵌进栏内，避免悬浮遮挡 tab 图标）
+  leftAccessory?: React.ReactNode;
+  rightAccessory?: React.ReactNode;
 }) {
   const resume = useStore((s) => s.resume);
   const layout = useStore((s) => s.layoutSettings);
   const sourceText = useStore((s) => s.sourceText);
+  const aiBusy = useAiBusyStore((s) => s.current);
+  // 诊断对照：报告页打开且「对照诊改」开关开启时取报告里的模块级建议（section_advice 引用稳定，不引发多余重渲）
+  const diagAdvice = useStore((s) =>
+    s.diagnosisReportOpen && s.diagnosisOverlayOn && s.diagnosis
+      ? s.diagnosis.report.evalResult.evaluation.section_advice ?? null : null);
+  const diagStale = useStore((s) => !!s.diagnosis && (
+    s.diagnosis.stamp.contentSeq !== s.contentSeq || s.diagnosis.stamp.jd !== s.jd || s.diagnosis.stamp.role !== s.role));
   const [tab, setTab] = useState<"preview" | "source">("preview");
   const [doc, setDoc] = useState("");
   const [docKey, setDocKey] = useState(0);  // 内容变化即重挂 iframe：加载标记随实例失效，杜绝「同实例新导航」误判
@@ -522,6 +557,104 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
     }
   }, []);
 
+  // ---- 诊断对照卡 ----
+  // 报告页打开时，把 section_advice 按模块注入 iframe（挂在各模块末尾，与内容就地对照）；
+  // 收起态记在 ref：内容重渲/重挂后保留用户的收起选择。DOM 全部即时构建，不进 srcDoc。
+  const diagAdviceRef = useRef(diagAdvice); diagAdviceRef.current = diagAdvice;
+  const diagStaleRef = useRef(diagStale); diagStaleRef.current = diagStale;
+  const adviceFoldedRef = useRef<Set<string>>(new Set());
+  const syncAdviceCards = useCallback(() => {
+    const idoc = iframeRef.current?.contentDocument;
+    if (!idoc?.body) return;
+    if (!idoc.head.querySelector("#on-merit-advice-style")) {
+      const style = idoc.createElement("style");
+      style.id = "on-merit-advice-style";
+      style.textContent = DIAGNOSIS_ADVICE_CSS;
+      idoc.head.appendChild(style);
+    }
+    idoc.querySelectorAll(".cv-advice").forEach((node) => node.remove());
+    const advice = diagAdviceRef.current;
+    if (advice) {
+      // 分页后同一模块可能跨页拆成多段：卡挂在最后一段末尾（即模块内容结束处）
+      const hosts = new Map<string, HTMLElement>();
+      idoc.querySelectorAll<HTMLElement>("[data-resume-module-section]").forEach((el) => {
+        const key = el.dataset.resumeModuleSection;
+        if (key) hosts.set(key, el);
+      });
+      for (const [key, items] of Object.entries(advice)) {
+        const host = items?.length ? hosts.get(key) : undefined;
+        if (!host) continue;
+        const wrap = idoc.createElement("div");
+        wrap.className = "cv-advice";
+        const render = () => {
+          wrap.textContent = "";
+          if (adviceFoldedRef.current.has(key)) {
+            const row = idoc.createElement("div");
+            row.className = "cv-advice-toggle";
+            const open = idoc.createElement("button");
+            open.type = "button";
+            open.className = "cv-advice-open";
+            open.setAttribute("aria-expanded", "false");
+            open.textContent = "查看建议 ⌄";
+            open.addEventListener("click", (event) => {
+              event.stopPropagation();
+              adviceFoldedRef.current.delete(key);
+              render();
+              frameResizeRef.current();
+            });
+            row.appendChild(open);
+            wrap.appendChild(row);
+            return;
+          }
+          const card = idoc.createElement("div");
+          card.className = "cv-advice-card";
+          card.setAttribute("role", "note");
+          card.setAttribute("aria-label", "诊断建议");
+          const head = idoc.createElement("div");
+          head.className = "cv-advice-head";
+          const mark = idoc.createElement("span");
+          mark.className = "cv-advice-mark";
+          mark.setAttribute("aria-hidden", "true");
+          mark.textContent = "✦";
+          const title = idoc.createElement("span");
+          title.className = "cv-advice-title";
+          title.textContent = "诊断建议";
+          const fold = idoc.createElement("button");
+          fold.type = "button";
+          fold.className = "cv-advice-fold";
+          fold.setAttribute("aria-expanded", "true");
+          fold.textContent = "收起 ⌃";
+          fold.addEventListener("click", (event) => {
+            event.stopPropagation();
+            adviceFoldedRef.current.add(key);
+            render();
+            frameResizeRef.current();
+          });
+          head.append(mark, title, fold);
+          const list = idoc.createElement("ol");
+          list.className = "cv-advice-list";
+          for (const text of items) {
+            const li = idoc.createElement("li");
+            li.textContent = text;
+            list.appendChild(li);
+          }
+          const note = idoc.createElement("p");
+          note.className = "cv-advice-note";
+          note.textContent = diagStaleRef.current
+            ? "注意：报告基于旧内容，建议可能已过时；请只补充真实信息，不要编造。"
+            : "注意：建议仅供参考，请只补充真实信息，不要编造。";
+          card.append(head, list, note);
+          wrap.appendChild(card);
+        };
+        render();
+        host.appendChild(wrap);
+      }
+    }
+    frameResizeRef.current();
+  }, []);
+  // 报告开/关、换报告、过期态变化 → 重同步；iframe 重挂时由 onFrameLoad 兜底再注入
+  useEffect(() => { syncAdviceCards(); }, [diagAdvice, diagStale, syncAdviceCards]);
+
   // iframe 外的任意点击都视为离开画布编辑区，并提交当前改动。
   useEffect(() => {
     const commitOutside = () => inlineSessionRef.current?.commit();
@@ -668,6 +801,7 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
     if (idoc) {
       try { paginate(idoc); } catch { /* 分页失败退回单长页，不阻断预览 */ }
       installInlineEditing(idoc);
+      syncAdviceCards();   // 重挂后的新文档补挂诊断对照卡（分页之后注入，不参与分页测量）
       // iframe 随内容变化整体重挂（docKey），文档销毁即弃监听，无需清理
       idoc.addEventListener("wheel", wheelZoom, { passive: false });
     }
@@ -681,27 +815,32 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
     else { pendingPrint.current = cur; setDoc(cur); setDocKey((k) => k + 1); }
   };
 
+  // 标题栏 tab 胶囊（Figma 标题Bar 1013:574）：28px 高、8px 圆角、图标 24 盒 + 12px 文字，激活项浅灰底
   const tabCls = (t: "preview" | "source") => cn(
-    "h-11 min-h-11 rounded-none border-b-2 px-2 text-label-12 active:scale-100",
-    tab === t ? "border-foreground text-foreground" : "border-transparent text-muted-foreground hover:text-foreground");
+    "h-7 min-h-7 shrink-0 !gap-0 rounded-header py-0 pl-1 pr-2 text-label-12 text-muted-foreground",
+    "hover:bg-muted active:scale-100", tab === t && "bg-muted");
 
-  // min-h-0：画布外层容器不再自带 overflow，需在 main 上切断内容高度向上传播
+  // min-h-0：画布外层容器不再自带 overflow，需在 main 上切断内容高度向上传播；
+  // h-full：直接挂在 ResizablePanel（非 flex 容器）下时 flex-1 不生效，需显式撑满面板高度
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
       {/* 标题栏 */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-border bg-background pl-4 pr-4">
-        <div className="flex items-center gap-1">
+      <div className={cn("flex h-11 shrink-0 items-center border-b border-border bg-background pr-4",
+        leftAccessory ? "pl-2" : "pl-4")}>
+        <div className="flex items-center gap-2">
+          {leftAccessory}
           <Button type="button" variant="ghost" className={tabCls("preview")}
             onClick={() => setTab("preview")} aria-pressed={tab === "preview"}>
-            <Eye className="h-4 w-4" /> 预览
+            <span className="flex h-6 w-6 items-center justify-center text-foreground"><PanelTop className="h-4 w-4" /></span>预览
           </Button>
           {sourceText && showPolish && (   /* 原件对照仅诊断模式提供；排版模式隐藏（配合上方强制收回） */
             <Button type="button" variant="ghost" className={tabCls("source")}
               onClick={() => setTab("source")} aria-pressed={tab === "source"}>
-              <FileText className="h-4 w-4" /> 原件
+              <span className="flex h-6 w-6 items-center justify-center text-foreground"><FileText className="h-4 w-4" /></span>原件
             </Button>
           )}
         </div>
+        {rightAccessory && <div className="ml-auto flex items-center">{rightAccessory}</div>}
       </div>
 
       {/* 画布 */}
@@ -750,6 +889,14 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi }: {
               <ZoomIn className="h-4 w-4" />
             </Button>
           </div>
+          {/* AI 润色/编辑进行中胶囊（Figma 1026:647）：画布底中，可停止等待 */}
+          {aiBusy && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center">
+              <div className="pointer-events-auto">
+                <AiBusyPill kind={aiBusy.kind} onStop={aiBusy.stop} />
+              </div>
+            </div>
+          )}
         </div>
       )}
     </main>

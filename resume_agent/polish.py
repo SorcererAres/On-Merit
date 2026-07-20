@@ -1,7 +1,8 @@
 """字段级 AI 润色（编辑表单 v3 §4.8）：重述单段描述已有事实，不新增。
 
 能力边界（如实声明，不宣称「保证不编造」）：
-- 硬校验（确定性，拒绝重试）：输出出现原文没有的**数字** → 拒绝；剥标记后长度 >1.5× → 拒绝。
+- 硬校验（确定性，拒绝重试）：输出出现原文没有的**数字** → 拒绝；剥标记后长度 >2×+30 字 → 拒绝
+  （比例放宽到 2 倍并留 30 字绝对余量：短文本整理成条目/补动词天然膨胀快，纯比例会误伤）。
 - new_terms（尽力而为提示，非拒绝）：输出中新出现的英文 token / 连续 2+ 字中文片段，
   列出让用户核实是否属实——确定性校验挡不住文本性新实体，故用提示 + 「请核实」话术兜底。
 纯逻辑 + 可注入 chat_fn，离线可测。
@@ -74,6 +75,6 @@ def polish_field(text: str, kind: str, chat_fn: ChatFn, jd: Optional[str] = None
     new_nums = _numbers(out_plain) - _numbers(src_plain)
     if new_nums:
         raise ValueError(f"润色引入了原文没有的数字（{'、'.join(sorted(new_nums))}），已拒绝以防加料")
-    if len(out_plain) > 1.5 * max(1, len(src_plain)):
+    if len(out_plain) > 2 * max(1, len(src_plain)) + 30:
         raise ValueError("润色后内容显著膨胀，疑似加料，已拒绝")
     return {"md": md, "new_terms": _new_terms(src_plain, out_plain)}

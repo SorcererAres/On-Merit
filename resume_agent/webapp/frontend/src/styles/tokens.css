@@ -80,6 +80,11 @@
   --canvas-control-border: #ffffff;
   --canvas-control-hover: color-mix(in srgb, var(--canvas-control) 92%, #000);
 
+  /* —— 画布 AI 进行中胶囊（Figma 1026:647）：浮在浅色 A4 上，Light/Dark 同值 —— */
+  --ai-busy: #ffffff;
+  --ai-busy-foreground: #171717;
+  --ai-busy-border: #ededed;
+
   /* —— blue：链接 / 聚焦 / 信息（成功用 green，见下）—— */
   --blue-100: #f0f7ff;
   --blue-200: #e9f4ff;
@@ -196,6 +201,8 @@
   /* 画布缩放控件三层投影（Figma 1004:981） */
   --shadow-canvas-control: 0 1px 10px rgba(0, 0, 0, 0.05),
     0 4px 5px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
+  /* 画布 AI 进行中胶囊投影（Figma 1026:647） */
+  --shadow-ai-busy: 0 8px 36px 4px rgba(0, 0, 0, 0.12);
 
   /* —— 动效 —— */
   --ease-geist: cubic-bezier(0.175, 0.885, 0.32, 1.1);
@@ -374,6 +381,11 @@
   --canvas-control-border: #ffffff;
   --canvas-control-hover: color-mix(in srgb, var(--canvas-control) 92%, #000);
 
+  /* —— 画布 AI 进行中胶囊（Dark 同 Light：浮在浅色 A4 上）—— */
+  --ai-busy: #ffffff;
+  --ai-busy-foreground: #171717;
+  --ai-busy-border: #ededed;
+
   /* —— 阴影（Dark：抬升更依赖描边，阴影更实）—— */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.16);
   --shadow-popover: 0 1px 1px rgba(0, 0, 0, 0.2),
@@ -383,6 +395,8 @@
   /* 画布缩放控件投影：画布恒浅色，投影与 Light 同值 */
   --shadow-canvas-control: 0 1px 10px rgba(0, 0, 0, 0.05),
     0 4px 5px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
+  /* 画布 AI 进行中胶囊投影：画布恒浅色，与 Light 同值 */
+  --shadow-ai-busy: 0 8px 36px 4px rgba(0, 0, 0, 0.12);
 
   /* —— shadcn 语义层（Dark 必须重声明全部别名）——
      CSS 变量继承的是计算值；:root 的别名已解析为 Light 值，若这里不重声明，

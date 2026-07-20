@@ -21,6 +21,8 @@ const twMerge = extendTailwindMerge({
         "text-copy-14", "text-copy-14-mono",
         "text-copy-13", "text-copy-13-mono",
       ],
+      // 自定义圆角 token 同理：不注册会与基类 rounded-md 等并存，CSS 顺序决定胜负
+      rounded: [{ rounded: ["header", "control", "gallery"] }],
     },
   },
 });

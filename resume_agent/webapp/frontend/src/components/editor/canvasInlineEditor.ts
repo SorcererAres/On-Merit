@@ -1,4 +1,5 @@
 import { postJSON } from "@/lib/api";
+import { withAiBusy } from "@/lib/aiBusy";
 import { useStore } from "@/store/useStore";
 import type { Resume, Skill } from "@/types";
 import { marked, Renderer } from "marked";
@@ -366,10 +367,11 @@ export function createCanvasInlineEditor({
         const active = bodyNode;
         try {
           const current = useStore.getState();
-          const result = await postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field", {
-            kind, source_text: current.sourceText || undefined, entry_context: target.label,
-          });
-          if (finished || !active.isConnected) return;
+          const result = await withAiBusy("edit", (signal) =>
+            postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field", {
+              kind, source_text: current.sourceText || undefined, entry_context: target.label,
+            }, signal));
+          if (!result || finished || !active.isConnected) return;
           active.innerHTML = markdownToEditorHtml(result.md.slice(0, 1000)); onResize();
           toast.success(result.mode === "template" ? "已插入结构模板，请填写真实经历" : "已插入原件提取内容，请核实");
         } catch (error) { toast.error((error as Error).message || "生成失败，请重试"); }
@@ -380,8 +382,14 @@ export function createCanvasInlineEditor({
         const active = bodyNode;
         try {
           const current = useStore.getState();
-          const result = await postJSON<{ md: string }>("/api/polish-field", { text: original, kind, jd: current.jd?.trim() || undefined });
-          if (finished || !active.isConnected || editableToMarkdown(active) !== original) { toast.message("内容已变化，请重新润色"); return; }
+          const result = await withAiBusy("polish", (signal) =>
+            postJSON<{ md: string }>("/api/polish-field", {
+              text: original, kind, jd: current.jd?.trim() || undefined,
+            }, signal));
+          if (!result || finished || !active.isConnected || editableToMarkdown(active) !== original) {
+            if (result) toast.message("内容已变化，请重新润色");
+            return;
+          }
           active.innerHTML = markdownToEditorHtml(result.md.slice(0, 1000)); onResize();
           toast.success("已应用润色，请核实内容");
         } catch (error) { toast.error((error as Error).message || "润色失败，请重试"); }
@@ -443,7 +451,9 @@ export function createCanvasInlineEditor({
     toolbarCleanup?.();
     floatingToolbar?.remove();
     node.innerHTML = originalHTML;
-    node.classList.remove("is-inline-selected", "is-canvas-editing");
+    node.classList.remove("canvas-inline-subfield", "is-inline-selected", "is-canvas-editing");
+    node.contentEditable = "inherit";
+    node.spellcheck = true;
     if (originalTabIndex === null) node.removeAttribute("tabindex"); else node.setAttribute("tabindex", originalTabIndex);
     if (originalRole === null) node.removeAttribute("role"); else node.setAttribute("role", originalRole);
     if (originalTitle === null) node.removeAttribute("title"); else node.setAttribute("title", originalTitle);

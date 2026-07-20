@@ -107,6 +107,12 @@ export default {
           border: "var(--canvas-control-border)",
           hover: "var(--canvas-control-hover)",
         },
+        // 画布 AI 进行中胶囊（Figma 1026:647）
+        "ai-busy": {
+          DEFAULT: "var(--ai-busy)",
+          foreground: "var(--ai-busy-foreground)",
+          border: "var(--ai-busy-border)",
+        },
         gallery: {
           DEFAULT: "var(--gallery-background)",
           surface: "var(--gallery-surface)",
@@ -199,6 +205,7 @@ export default {
         content: "75rem",
         prose: "65ch",
         "mobile-panel": "calc(100vw - 3rem)",
+        "chart-radar": "16.25rem",   // 雷达图响应式宽度上限（与 svg viewBox 260 同源）
       },
 
       height: {
@@ -249,6 +256,7 @@ export default {
         popover: "var(--shadow-popover)",
         modal: "var(--shadow-modal)",
         "canvas-control": "var(--shadow-canvas-control)",
+        "ai-busy": "var(--shadow-ai-busy)",
         // 两层聚焦环
         focus: "0 0 0 2px var(--background-100), 0 0 0 4px var(--ring)",
       },

@@ -171,6 +171,29 @@ def test_validate_evaluation_strict():
     print("OK: validate_evaluation 严格校验（类别/上限/越界/非数/证据）")
 
 
+def test_section_advice_prompt_and_validation():
+    """section_advice：prompt 按存在模块声明合法 key；校验宽松规范化（越权 key/非法值悄悄丢弃，缺省不报错）。"""
+    r = rubrics.get_rubric("designer")
+    secs = ev.resume_sections(DESIGNER_RESUME)
+    keys = {s["key"] for s in secs}
+    assert {"summary", "exp", "skills"} <= keys and "edu" not in keys  # 无教育经历不声明 edu
+    msgs = ev.build_criteria_prompt(r, "简历文本", secs)
+    assert "section_advice" in msgs[1]["content"] and "工作经历" in msgs[1]["content"]
+    # 不传模块清单时 prompt 保持旧形态（旧调用方不受影响）
+    assert "section_advice" not in ev.build_criteria_prompt(r, "简历文本")[1]["content"]
+    good = _fake_designer_eval()
+    good["section_advice"] = {"exp": ["补量化结果", 123, "  "], "bogus": ["x"], "edu": "not-a-list"}
+    norm = ev.validate_evaluation(r, good)
+    assert norm["section_advice"] == {"exp": ["补量化结果"]}
+    assert ev.validate_evaluation(r, _fake_designer_eval())["section_advice"] == {}
+    # 模型把多条建议打包进一条字符串 → 按「N. 」拆开；小数（36.5%）不误拆；剥 **加粗**
+    packed = _fake_designer_eval()
+    packed["section_advice"] = {"exp": ["1. **补量化**：周期缩短 36.5% 需注明口径。 2. 精简句式：合并重复表述。"]}
+    got = ev.validate_evaluation(r, packed)["section_advice"]["exp"]
+    assert got == ["补量化：周期缩短 36.5% 需注明口径。", "精简句式：合并重复表述。"]
+    print("OK: section_advice prompt 声明 + 宽松规范化 + 编号拆条")
+
+
 def test_evaluate_runs_validation():
     """evaluate 端到端走校验：篡改的 max 被纠正。"""
     r = rubrics.get_rubric("designer")
@@ -248,6 +271,7 @@ if __name__ == "__main__":
     test_criteria_prompt_contains_categories()
     test_resume_to_text_drops_personal_fields()
     test_validate_evaluation_strict()
+    test_section_advice_prompt_and_validation()
     test_evaluate_runs_validation()
     test_evaluate_retries_on_bad_output()
     test_portfolio_link_detection()

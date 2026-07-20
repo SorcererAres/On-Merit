@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useStore } from "@/store/useStore";
 import { TEMPLATES, THEME_COLORS } from "@/lib/templates";
 import { resumeBodyEditSections } from "@/lib/resumeToMarkdown";
+import { MODULE_LABEL } from "./ExtraModules";
 import { cn } from "@/lib/cn";
 import { confirmDialog } from "@/components/confirm";
 import type { Resume } from "@/types";
@@ -72,8 +73,43 @@ export function TemplatesPanel() {
   );
 }
 
-/** 左栏 · 页面布局：分页、垂直节奏与模块顺序。 */
+/** 左栏 · 排版：模板库（间距与模块管理已拆去「编辑布局」视图）。 */
 export function PageLayoutPanel() {
+  const layout = useStore((s) => s.layoutSettings);
+  const setLayout = useStore((s) => s.setLayout);
+
+  return (
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <section className="overflow-hidden rounded-md border border-border bg-background">
+        <div className="border-b border-border px-4 py-3">
+          <h3 className="text-heading-14 text-foreground">简历模板</h3>
+        </div>
+        <div className="space-y-2 p-2">
+          {TEMPLATES.map((template) => (
+            <Button key={template.id} type="button" variant="ghost"
+              aria-pressed={layout.templateId === template.id}
+              onClick={() => setLayout({
+                templateId: template.id,
+                ...(template.defaultTheme ? { themeColor: template.defaultTheme } : {}),
+              })}
+              className={cn("h-auto w-full justify-start rounded-md border p-3 text-left active:scale-100",
+                layout.templateId === template.id
+                  ? "border-primary bg-accent"
+                  : "border-border bg-background hover:bg-accent")}>
+              <span>
+                <span className="block text-button-14">{template.name}</span>
+                <span className="block text-label-12 text-muted-foreground">{template.hint}</span>
+              </span>
+            </Button>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** 左栏 · 编辑布局：分页、垂直节奏与模块顺序（由标题栏「页面布局」按钮进入）。 */
+export function EditLayoutPanel() {
   const resume = useStore((s) => s.resume);
   const layout = useStore((s) => s.layoutSettings);
   const setLayout = useStore((s) => s.setLayout);
@@ -108,33 +144,34 @@ export function PageLayoutPanel() {
     editResume(withoutModule(resume, key, orderedKeys));
   };
 
+  // 已启用但未填写的扩展模块：空节不进正文列表（resumeBodyEditSections 过滤），
+  // 而表单侧不再放删除按钮（删除统一收口在这里），故单独列出供删除
+  const EXTRA_EMPTY_FIELDS = ["job_intent", "internships", "organizations", "awards",
+    "volunteer", "campus", "thesis", "competitions", "certificates"];
+  const bodyFieldSet = new Set(orderedKeys.map((key) => ARRAY_MODULES[key] ?? (key === "intent" ? "job_intent" : key)));
+  const emptyModules: { field: string; label: string }[] = resume
+    ? EXTRA_EMPTY_FIELDS
+        .filter((f) => (resume as Record<string, unknown>)[f] !== undefined && !bodyFieldSet.has(f as keyof Resume))
+        .map((f) => ({ field: f, label: MODULE_LABEL[f] ?? f }))
+    : [];
+  const emptyCustomCount = ((resume?.custom_sections ?? []) as { title?: string; content?: string }[])
+    .filter((cs) => !cs.title?.trim() && !cs.content?.trim()).length;
+  if (emptyCustomCount > 0) emptyModules.push({ field: "custom_sections", label: "自定义模块" });
+  const removeEmptyModule = async (field: string, label: string) => {
+    if (!resume || !(await confirmDialog({
+      title: `移除「${label}」？`, description: "该模块尚未填写内容，可随时重新添加。", confirmText: "移除",
+    }))) return;
+    const next = structuredClone(resume) as Record<string, unknown>;
+    if (field === "custom_sections") {
+      const rest = (next.custom_sections as { title?: string; content?: string }[])
+        .filter((cs) => cs.title?.trim() || cs.content?.trim());
+      if (rest.length) next.custom_sections = rest; else delete next.custom_sections;
+    } else delete next[field];
+    editResume(next as Resume);
+  };
+
   return (
     <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-      <section className="overflow-hidden rounded-md border border-border bg-background">
-        <div className="border-b border-border px-4 py-3">
-          <h3 className="text-heading-14 text-foreground">简历模板</h3>
-        </div>
-        <div className="space-y-2 p-2">
-          {TEMPLATES.map((template) => (
-            <Button key={template.id} type="button" variant="ghost"
-              aria-pressed={layout.templateId === template.id}
-              onClick={() => setLayout({
-                templateId: template.id,
-                ...(template.defaultTheme ? { themeColor: template.defaultTheme } : {}),
-              })}
-              className={cn("h-auto w-full justify-start rounded-md border p-3 text-left active:scale-100",
-                layout.templateId === template.id
-                  ? "border-primary bg-accent"
-                  : "border-border bg-background hover:bg-accent")}>
-              <span>
-                <span className="block text-button-14">{template.name}</span>
-                <span className="block text-label-12 text-muted-foreground">{template.hint}</span>
-              </span>
-            </Button>
-          ))}
-        </div>
-      </section>
-
       <section className="overflow-hidden rounded-md border border-border bg-background">
         <div className="border-b border-border px-4 py-3">
           <h3 className="text-heading-14 text-foreground">间距</h3>
@@ -215,7 +252,19 @@ export function PageLayoutPanel() {
               </Button>
             </div>
           ))}
-          {sections.length === 0 && (
+          {emptyModules.map(({ field, label }) => (
+            <div key={field} className="group flex min-h-11 items-center gap-1 rounded-sm px-2 hover:bg-accent">
+              <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground opacity-40" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-copy-14 text-muted-foreground">{label}</span>
+              <span className="text-label-12 text-muted-foreground">未填写</span>
+              <Button type="button" variant="ghost" aria-label={`删除${label}模块`}
+                onClick={() => void removeEmptyModule(field, label)}
+                className="w-11 px-0 text-muted-foreground hover:text-destructive">
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+          {sections.length === 0 && emptyModules.length === 0 && (
             <p className="px-2 py-4 text-center text-copy-13 text-muted-foreground">填写内容后，可在这里管理模块。</p>
           )}
         </div>

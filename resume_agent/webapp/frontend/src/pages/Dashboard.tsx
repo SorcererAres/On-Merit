@@ -101,7 +101,12 @@ function Thumb({ id, version }: { id: string; version: number }) {
       const style = idoc.createElement("style");
       style.id = THUMB_STYLE_ID;
       style.textContent = `
-        html, body { background: transparent !important; }
+        html, body {
+          background: transparent !important;
+          overflow: hidden !important;            /* 缩略图禁止滚动，避免右侧出现滚动条 */
+          scrollbar-width: none !important;       /* Firefox 隐藏滚动条 */
+        }
+        ::-webkit-scrollbar { display: none !important; } /* WebKit 隐藏滚动条 */
         .canvas {
           align-items: flex-start !important;
           gap: 0 !important;
@@ -115,7 +120,9 @@ function Thumb({ id, version }: { id: string; version: number }) {
   };
   return (
     <div ref={boxRef} className="h-resume-thumbnail overflow-hidden bg-gallery-preview pt-8 opacity-90">
-      <div className="mx-8 h-gallery-preview-document overflow-hidden rounded-tl-lg rounded-tr-md bg-gallery-card">
+      <div className="relative mx-8 h-gallery-preview-document overflow-hidden rounded-tl-lg rounded-tr-md bg-gallery-card
+        after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-10
+        after:bg-gradient-to-t after:from-gallery-card after:to-transparent">
         {visible && doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
           srcDoc={doc} onLoad={fit} className="pointer-events-none h-thumb-document w-full border-0" />}
       </div>

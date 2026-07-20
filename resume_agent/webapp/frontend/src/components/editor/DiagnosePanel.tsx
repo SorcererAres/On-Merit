@@ -4,21 +4,27 @@
 // 逻辑沿用原 AIPanel：异步结果按 id+loadSeq+editSeq 语境戳丢弃过期；无任何 X→Y 自评提升口径。
 import { useEffect, useState } from "react";
 import { postJSON, getJSON } from "@/lib/api";
+import { useAiBusyStore } from "@/lib/aiBusy";
 import { useTask } from "@/lib/useTask";
 import { useStore } from "@/store/useStore";
 import { TaskStatus } from "@/components/TaskStatus";
 import { ScoreCard } from "@/components/ScoreCard";
 import { MatchReportView } from "@/components/MatchReportView";
-import { Alert } from "@/components/ui/misc";
+import { Alert, Badge } from "@/components/ui/misc";
 import type { EvalResult, MatchReport, Role } from "@/types";
 import { Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Wand2, ArrowLeft, ChevronRight } from "lucide-react";
+import { Wand2, X, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 
 const fmtTime = (at: number) =>
   new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+const fmtDateTime = (at: number) =>
+  new Date(at).toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).replace(/\//g, ".");
 
 export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | Promise<boolean> } = {}) {
   const { resume, jd, role, diagnosis, contentSeq, setJD, setRole, setDiagnosis } = useStore();
@@ -26,6 +32,16 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
   // 一级/二级页导航（仅组件内部态；切 tab / 切简历时组件卸载重挂，自然回到 console）
   const [view, setView] = useState<"console" | "report">("console");
   useEffect(() => { getJSON<{ roles: Role[] }>("/api/roles").then((d) => setRoles(d.roles)).catch(() => {}); }, []);
+  // 报告页打开态同步到全局：中间画布据此在各模块旁挂「诊断建议」对照卡（关面板/切 tab 即撤）
+  const setReportOpen = useStore((s) => s.setDiagnosisReportOpen);
+  // 「对照诊改」用户开关：跨报告页进出保留（存 store），关掉即隐藏画布对照卡
+  const overlayOn = useStore((s) => s.diagnosisOverlayOn);
+  const setOverlayOn = useStore((s) => s.setDiagnosisOverlayOn);
+  const reportOpen = view === "report" && !!diagnosis;
+  useEffect(() => {
+    setReportOpen(reportOpen);
+    return () => setReportOpen(false);
+  }, [reportOpen, setReportOpen]);
 
   const stamp = () => { const s = useStore.getState(); return { id: s.resumeId, load: s.loadSeq, seq: s.editSeq }; };
   const fresh = (st: { id: string | null; load: number; seq: number }) => {
@@ -52,24 +68,32 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
   const runAnalyze = async () => {
     if (onBeforeRun && !(await onBeforeRun())) return; // 有待完善项时，由用户明确选择补全或继续
     const st = stamp();
-    const r = await analyze.run();
-    if (!r) return;
-    if (fresh(st)) {
-      // 语境戳：报告的真实输入（内容版本 + JD + role）+ 生成时刻，供过期推导与「生成时间」显示
-      const s = useStore.getState();
-      setDiagnosis({ report: r, stamp: { contentSeq: s.contentSeq, jd: s.jd, role: s.role, at: Date.now() } });
-      setView("report");   // 诊断完成自动进入二级报告页
-      // 存档一条只读报告快照（历史回顾用；失败不打扰——记录缺一条无碍诊断本身）
-      if (st.id) {
-        postJSON(`/api/resumes/${st.id}/reports`, {
-          role: useStore.getState().role,
-          role_label: r.evalResult.role_label,
-          score: r.evalResult.score, max: r.evalResult.max,
-          has_jd: !!r.match,
-          report: r,
-        }).catch(() => {});
+    const busyId = "diagnose-panel-analyze";
+    useAiBusyStore.getState().begin(busyId, "diagnose", analyze.stop);
+    try {
+      const r = await analyze.run();
+      if (!r) return;
+      if (fresh(st)) {
+        // 语境戳：报告的真实输入（内容版本 + JD + role）+ 生成时刻，供过期推导与「生成时间」显示
+        const s = useStore.getState();
+        setDiagnosis({ report: r, stamp: { contentSeq: s.contentSeq, jd: s.jd, role: s.role, at: Date.now() } });
+        setView("report");   // 诊断完成自动进入二级报告页
+        // 存档一条只读报告快照（历史回顾用；失败不打扰——记录缺一条无碍诊断本身）
+        if (st.id) {
+          postJSON(`/api/resumes/${st.id}/reports`, {
+            role: useStore.getState().role,
+            role_label: r.evalResult.role_label,
+            score: r.evalResult.score, max: r.evalResult.max,
+            has_jd: !!r.match,
+            report: r,
+          }).catch(() => {});
+        }
+      } else {
+        toast.message("诊断期间简历有变更，结果已失效，请重新诊断");
       }
-    } else toast.message("诊断期间简历有变更，结果已失效，请重新诊断");
+    } finally {
+      useAiBusyStore.getState().end(busyId);
+    }
   };
 
   // 过期推导态：报告的真实输入变了 ⇒ 挂黄条（不销毁报告）。jd/role 按值比较，内容看 contentSeq。
@@ -85,24 +109,46 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
     const ev = diagnosis.report.evalResult;
     return (
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-3">
-          <Button type="button" variant="ghost" aria-label="返回诊断台" onClick={() => setView("console")}
-            className="h-11 rounded-sm px-2 text-copy-14 text-foreground">
-            <ArrowLeft className="h-4 w-4" /> 返回
+        <div className="flex h-11 shrink-0 items-center border-b border-border px-4">
+          <h2 className="text-heading-14 text-foreground">AI 诊断报告</h2>
+          <Button type="button" variant="ghost" aria-label="关闭诊断报告" onClick={() => setView("console")}
+            className="ml-auto size-8 min-h-8 rounded-sm p-0 text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
           </Button>
-          <span className="text-copy-13 text-muted-foreground">生成于 {fmtTime(diagnosis.stamp.at)}</span>
-          <Button variant="secondary" disabled={analyze.loading || !resume} onClick={runAnalyze}
-            className="ml-auto px-3 text-copy-13">重新诊断</Button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3">
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6 pt-3">
+          <div className="flex items-center gap-2 text-label-12 text-muted-foreground">
+            <span>检查时间：{fmtDateTime(diagnosis.stamp.at)}</span>
+            {/* 对照诊改开关：控制中间画布各模块「诊断建议」对照卡显隐 */}
+            <label htmlFor="dg-overlay"
+              className="ml-auto flex shrink-0 cursor-pointer items-center gap-2 text-label-12 text-foreground">
+              {overlayOn ? "已开启对照诊改" : "已关闭对照诊改"}
+              <Switch id="dg-overlay" checked={overlayOn} onCheckedChange={setOverlayOn}
+                aria-label="对照诊改：在预览画布中显示各模块诊断建议"
+                className="data-[state=checked]:bg-green-700" />
+            </label>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <Badge tone="green">简历诊断</Badge>
+            {diagnosis.report.match && <Badge tone="gray">JD 匹配</Badge>}
+            <Badge tone={stale ? "amber" : "green"} className="shrink-0">
+              {stale ? "报告已过期" : "已是最新版本"}
+            </Badge>
+            <Button variant="ghost" disabled={analyze.loading || !resume} onClick={runAnalyze}
+              className="ml-auto h-7 min-h-7 px-2 text-label-12 text-muted-foreground">
+              重新诊断
+            </Button>
+          </div>
           {stale && (
-            <Alert tone="amber" className="mb-3">简历已变更，本报告基于旧内容——请重新诊断以获取最新评分。</Alert>
+            <Alert tone="amber" className="mb-3 mt-3">简历已变更，本报告基于旧内容——请重新诊断以获取最新评分。</Alert>
           )}
-          <TaskStatus loading={analyze.loading} elapsed={analyze.elapsed} stop={analyze.stop} error={analyze.error} />
-          <ScoreCard data={ev} />
+          <TaskStatus loading={false} elapsed={analyze.elapsed} stop={analyze.stop} error={analyze.error} />
+          <div className="mt-3">
+            <ScoreCard data={ev} report />
+          </div>
           {diagnosis.report.match && (
-            <div className="mt-3 border-t border-border pt-2">
-              <div className="text-label-13 text-muted-foreground">对目标 JD 的覆盖度</div>
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-heading-14 text-foreground">岗位匹配</h3>
               <MatchReportView report={diagnosis.report.match} />
             </div>
           )}
@@ -149,7 +195,7 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
         className="mt-4 w-full rounded-sm">
         {diagnosis ? "重新诊断" : "诊断"}
       </Button>
-      <TaskStatus loading={analyze.loading} elapsed={analyze.elapsed} stop={analyze.stop} error={analyze.error} />
+      <TaskStatus loading={false} elapsed={analyze.elapsed} stop={analyze.stop} error={analyze.error} />
 
       {!diagnosis && !analyze.loading && (
         <p className="mt-3 text-copy-13 text-muted-foreground">

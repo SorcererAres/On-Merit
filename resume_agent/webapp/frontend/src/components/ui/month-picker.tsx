@@ -81,7 +81,7 @@ export function MonthPicker({ value, onChange, placeholder, ariaLabel }: {
     return (
       <Input type="text" value={value ?? ""} placeholder={placeholder} aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}
-        className="border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0" />
+        className="min-h-0 border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0" />
     );
   }
   return (
@@ -89,7 +89,7 @@ export function MonthPicker({ value, onChange, placeholder, ariaLabel }: {
       <PopoverTrigger asChild>
         {/* 触发器不自带焦点环：本组件恒嵌在带边框的字段行内，环由容器 has-[:focus-visible]:ring 统一提供（避免双环） */}
         <Button type="button" variant="ghost" aria-label={ariaLabel}
-          className="w-full justify-start gap-1 rounded-sm bg-transparent px-0 py-2 text-left text-copy-14 active:scale-100">
+          className="min-h-0 w-full justify-start gap-1 rounded-sm bg-transparent px-0 py-2 text-left text-copy-14 active:scale-100">
           <span className={cn("min-w-0 flex-1 truncate tabular-nums", value ? "text-foreground" : "text-muted-foreground")}>
             {value ? label(value) : placeholder}
           </span>

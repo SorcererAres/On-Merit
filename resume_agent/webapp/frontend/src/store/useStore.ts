@@ -52,6 +52,8 @@ interface State {
   linkQuery: string | null;
   layoutSettings: LayoutSettings;
   diagnosis: DiagnosisEntry | null;
+  diagnosisReportOpen: boolean;   // 右栏报告页是否打开：驱动中间画布的模块建议对照卡显隐
+  diagnosisOverlayOn: boolean;    // 「对照诊改」用户开关（报告页头部）：关掉即隐藏画布对照卡
   contentSeq: number;   // 简历内容版本号：仅内容变更自增（排版/标题不动），驱动诊断报告过期判定
   improve: { changes: Change[]; notes: string[]; supplements: string[] } | null;
 
@@ -76,6 +78,8 @@ interface State {
   setTitle: (title: string) => void;
   setLayout: (patch: Partial<LayoutSettings>) => void;
   setDiagnosis: (entry: DiagnosisEntry) => void;
+  setDiagnosisReportOpen: (open: boolean) => void;
+  setDiagnosisOverlayOn: (on: boolean) => void;
   applyResume: (r: Resume) => void;
   setImprove: (changes: Change[], notes: string[], supplements: string[]) => void;
   restoreSnapshot: (snap: Snapshot) => void;
@@ -102,7 +106,7 @@ const replaceDoc = (r: Resume, extra: Partial<State> = {}) =>
 export const useStore = create<State>((set) => ({
   resume: null, warnings: [], usedOcr: false, jd: "", role: "engineer",
   sourceText: null, linkQuery: null, layoutSettings: DEFAULT_LAYOUT,
-  diagnosis: null, contentSeq: 0, improve: null,
+  diagnosis: null, diagnosisReportOpen: false, diagnosisOverlayOn: true, contentSeq: 0, improve: null,
   resumeId: null, version: 1, title: "", dirty: false,
   editSeq: 0, savedSeq: 0, hydrationKey: 0, loadSeq: 0, layoutSeq: 0, conflict: false,
 
@@ -124,6 +128,8 @@ export const useStore = create<State>((set) => ({
   })),
 
   setDiagnosis: (d) => set({ diagnosis: d }),
+  setDiagnosisReportOpen: (open) => set({ diagnosisReportOpen: open }),
+  setDiagnosisOverlayOn: (on) => set({ diagnosisOverlayOn: on }),
   setImprove: (changes, notes, supplements) => set({ improve: { changes, notes, supplements } }),
   // undo/redo 恢复：等价一次外部替换（bump + 重挂编辑列 + 失效诊断/润色）；
   // layoutSeq 同步推进（快照可能带不同样式，需按「此后未再改」语义参与保存回写判定）；
@@ -144,7 +150,7 @@ export const useStore = create<State>((set) => ({
     sourceText: rec.source_text ?? null, linkQuery: null,
     layoutSettings: { ...DEFAULT_LAYOUT, ...(rec.layout_settings || {}) },
     warnings: [], usedOcr: false,
-    diagnosis: null, improve: null,   // 换简历：跨简历报告无意义 → 清空；contentSeq 归零同 editSeq
+    diagnosis: null, diagnosisReportOpen: false, improve: null,   // 换简历：跨简历报告无意义 → 清空；contentSeq 归零同 editSeq
     editSeq: 0, savedSeq: 0, contentSeq: 0, dirty: false, conflict: false,
     hydrationKey: s.hydrationKey + 1, loadSeq: s.loadSeq + 1, layoutSeq: 0,
   })),

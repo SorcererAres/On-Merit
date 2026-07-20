@@ -3,12 +3,14 @@
 import { cloneElement, isValidElement, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { postJSON } from "@/lib/api";
+import { withAiBusy } from "@/lib/aiBusy";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Textarea } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { MonthPicker } from "@/components/ui/month-picker";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
   ChevronDown, Trash2, Plus, X,
@@ -22,22 +24,35 @@ export function AccordionSection({ title, children, right, id }: {
   const [open, setOpen] = useState(true);
   const contentId = id ? `${id}-content` : undefined;
   return (
-    <section id={id} className="border-b border-border px-5 py-1">
-      <div className="flex items-center">
+    <section id={id}>
+      {/* 44px 标题Bar（Figma 条目 1008-103）：标题 14px Medium 左距 24，右侧 24px chevron 常显
+          （收起指右/展开指下），hover 亮浅灰小方块并出「展开/收起」Tooltip；整行可点切换 */}
+      <div className="flex items-center pl-6 pr-4">
         <h3 className="min-w-0 flex-1">
-          {/* 整行仍可点；chevron 收进浅灰圆角小方块（Figma 分组头样式），hover 只亮小方块不铺整行 */}
           <Button type="button" variant="ghost" aria-expanded={open} aria-controls={contentId}
             onClick={() => setOpen(!open)}
-            className="group h-11 w-full justify-between px-0 text-left hover:bg-transparent active:scale-100">
-            <span className="truncate text-heading-16 text-foreground">{title}</span>
-            <span aria-hidden className="flex h-7 w-8 shrink-0 items-center justify-center rounded-header bg-muted text-muted-foreground transition-colors duration-state group-hover:bg-accent group-hover:text-foreground">
-              <ChevronDown className={cn("h-4 w-4 transition-transform duration-state", open ? "" : "-rotate-90")} />
-            </span>
+            className="group h-11 min-h-11 w-full justify-between px-0 text-left hover:bg-transparent active:scale-100">
+            <span className="truncate text-heading-14 font-medium text-foreground">{title}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span aria-hidden className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition duration-state group-hover:bg-muted group-hover:text-foreground">
+                  <ChevronDown className={cn("h-4 w-4 transition-transform duration-state", open ? "" : "-rotate-90")} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent sideOffset={8}>{open ? "收起" : "展开"}</TooltipContent>
+            </Tooltip>
           </Button>
         </h3>
         {right && <div className="ml-1 flex shrink-0 items-center">{right}</div>}
       </div>
-      {open && <div id={contentId} className="space-y-3 pb-3 pt-2">{children}</div>}
+      {/* 即时展开/收起（fr 过渡会把内容压出橡皮弹性感，故不加动画；内容常挂载，收起时 inert 挡住焦点与读屏） */}
+      <div id={contentId} aria-hidden={!open}
+        {...(open ? {} : { inert: "" })}
+        className={cn("grid", open ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+        <div className="min-h-0 overflow-hidden">
+          <div className="space-y-3 px-5 pb-3 pt-2">{children}</div>
+        </div>
+      </div>
     </section>
   );
 }
@@ -56,7 +71,7 @@ export function Field({ label, required, error, path, children }: {
     : children;
   return (
     <div data-field-path={path}>
-      <div className={cn("flex min-h-11 items-center rounded-md border px-3", FOCUS_RING,
+      <div className={cn("flex min-h-10 items-center rounded-header border px-3", FOCUS_RING,
         error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">
           {label}{required && <span className="ml-0.5 text-destructive">*</span>}
@@ -75,7 +90,7 @@ export function Field({ label, required, error, path, children }: {
 
 /** 裸输入（嵌在 Field 内，无边框，边框由 Field 提供）。下拉一律用 ui/select（shadcn）。 */
 export function BareInput(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <Input {...p} className={cn("border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0", p.className)} />;
+  return <Input {...p} className={cn("min-h-0 border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0", p.className)} />;
 }
 
 /** 年月区间：开始/结束用组件库 MonthPicker + 结束「至今」勾选（勾选存字面「至今」，渲染照旧）。 */
@@ -89,7 +104,7 @@ export function MonthRange({ label, start, end, onStart, onEnd, error, path }: {
     <div data-field-path={path}>
       <div role={error ? "group" : undefined} aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
-        className={cn("flex min-h-11 items-center rounded-md border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
+        className={cn("flex min-h-10 items-center rounded-header border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 text-copy-14 text-muted-foreground">{label}</label>
         <div className="flex min-w-0 flex-1 items-center">
           <div className="min-w-0 flex-1"><MonthPicker value={start} onChange={onStart} placeholder="开始月份" ariaLabel={`${label}开始月份`} /></div>
@@ -128,7 +143,7 @@ export function TagInput({ label, tags, onChange, max = 8, maxLen = 20, placehol
     setDraft("");
   };
   return (
-    <div className={cn("flex min-h-11 items-center rounded-md border border-border px-3", FOCUS_RING)}>
+    <div className={cn("flex min-h-10 items-center rounded-header border border-border px-3", FOCUS_RING)}>
       <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">{label}</label>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">
         {tags.map((t, i) => (
@@ -212,9 +227,10 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     polishStamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
     setPolishing(true);
     try {
-      const r = await postJSON<{ md: string; new_terms: string[] }>("/api/polish-field",
-        { text: v, kind: polishKind, jd: s.jd?.trim() ? s.jd : undefined });
-      setResult(r);
+      const r = await withAiBusy("polish", (signal) =>
+        postJSON<{ md: string; new_terms: string[] }>("/api/polish-field",
+          { text: v, kind: polishKind, jd: s.jd?.trim() ? s.jd : undefined }, signal));
+      if (r) setResult(r);
     } catch (e) {
       toast.error((e as Error).message || "润色失败，请重试");
     } finally { setPolishing(false); }
@@ -235,8 +251,10 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     genStamp.current = { id: s.resumeId, load: s.loadSeq, val: v };
     setGenerating(true);
     try {
-      const r = await postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field",
-        { kind: polishKind, source_text: s.sourceText || undefined, entry_context: genContext?.trim() || undefined });
+      const r = await withAiBusy("edit", (signal) =>
+        postJSON<{ md: string; mode: "extract" | "template" }>("/api/generate-field",
+          { kind: polishKind, source_text: s.sourceText || undefined, entry_context: genContext?.trim() || undefined }, signal));
+      if (!r) return;
       if (!_genNoticeShown) { _genNoticeShown = true; toast.message("AI 生成只做「原件提取」或「结构模板」，不会替你编造经历"); }
       setGenResult(r);
     } catch (e) {
@@ -279,31 +297,33 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     const nb = lines.join("\n");
     return { text: t.slice(0, ls) + nb + t.slice(end), sel: [ls, ls + nb.length] };
   });
+  // 工具栏按钮 24×4px 圆角、图标 16（Figma 富文本卡 1016-70）
   const TBtn = ({ label, on, children }: { label: string; on: () => void; children: React.ReactNode }) => (
     <Button type="button" variant="ghost" aria-label={label} title={label}
       onMouseDown={(e) => e.preventDefault()} onClick={on}
-      className="h-11 w-11 shrink-0 px-0 text-muted-foreground hover:text-foreground">
+      className="h-6 w-6 min-h-6 shrink-0 rounded-sm px-0 py-0 text-muted-foreground hover:bg-muted hover:text-foreground">
       {children}
     </Button>
   );
   const polishReady = !!polishKind && v.trim().length >= 10;
+  // AI 胶囊：28px 高浅灰圆角全胶囊 + 16px 星形图标 + 12px 文字；禁用态整体 60% 透明（Figma 1016:266）
   const AiChip = ({ label, on, enabled, busy }: { label: string; on?: () => void; enabled?: boolean; busy?: boolean }) => (
     <Button type="button" variant="ghost" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!enabled || busy}
       title={enabled ? label : (polishKind ? `${label}（至少填 10 字）` : `${label}（即将上线）`)}
-      className="shrink-0 whitespace-nowrap rounded-full bg-green-100 px-3 text-green-900 hover:bg-green-200">
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-      <span className="text-copy-13">{label}</span>
+      className="h-7 min-h-7 shrink-0 gap-1 whitespace-nowrap rounded-full bg-muted px-2 text-foreground hover:bg-accent disabled:opacity-60">
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+      <span className="text-label-12">{label}</span>
     </Button>
   );
   return (
     <div className={cn("rounded-md border border-border", FOCUS_RING)}>
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border px-2 py-1.5">
+      <div className="flex min-h-11 flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border py-1.5 pl-3 pr-3">
         <TBtn label="加粗" on={() => wrap("**")}><Bold className="h-4 w-4" /></TBtn>
         <TBtn label="斜体" on={() => wrap("*")}><Italic className="h-4 w-4" /></TBtn>
         <span className="mx-1 h-4 w-px shrink-0 bg-border" />
         <TBtn label="无序列表" on={() => prefixLines(false)}><List className="h-4 w-4" /></TBtn>
         <TBtn label="有序列表" on={() => prefixLines(true)}><ListOrdered className="h-4 w-4" /></TBtn>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <AiChip label="AI 润色" on={doPolish} enabled={polishReady} busy={polishing} />
           <AiChip label="AI 生成" on={doGenerate} enabled={!!polishKind} busy={generating} />
         </div>
@@ -387,11 +407,11 @@ export function ItemCard({ title, onDelete, children }: {
   );
 }
 
-/** 绿色「⊕ 新增 XX」 */
+/** 主色「⊕ 新增 XX」 */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <Button type="button" variant="ghost" onClick={onClick}
-      className="justify-start px-2 text-button-14 text-green-900">
+      className="justify-start px-2 text-button-14 text-primary">
       <Plus className="h-4 w-4" /> {label}
     </Button>
   );

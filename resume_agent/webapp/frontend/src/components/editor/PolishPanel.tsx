@@ -3,6 +3,7 @@
 // 仍缺 M 项需真实补充」，无 X→Y 涨分、无上升动画。异步结果按 id+loadSeq+editSeq 语境戳丢弃过期。
 import { useState } from "react";
 import { postJSON } from "@/lib/api";
+import { useAiBusyStore } from "@/lib/aiBusy";
 import { useTask } from "@/lib/useTask";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
@@ -38,10 +39,16 @@ export function PolishPanel() {
   });
   const runGen = async () => {
     const st = stamp();
-    const r = await gen.run();
-    if (!r) return;
-    if (fresh(st)) { setImprove(r.changes, r.notes, r.supplements); setAccepted({}); }
-    else toast.message("生成期间简历有变更，建议已失效，请重新生成");
+    const busyId = "polish-panel-gen";
+    useAiBusyStore.getState().begin(busyId, "polish", gen.stop);
+    try {
+      const r = await gen.run();
+      if (!r) return;
+      if (fresh(st)) { setImprove(r.changes, r.notes, r.supplements); setAccepted({}); }
+      else toast.message("生成期间简历有变更，建议已失效，请重新生成");
+    } finally {
+      useAiBusyStore.getState().end(busyId);
+    }
   };
 
   const apply = useTask((signal, patches: Patch[]) =>
@@ -55,15 +62,21 @@ export function PolishPanel() {
       .map((c) => ({ op: "replace", path: c.path, old: c.old, value: c.new }));
     if (!patches.length) return toast.error("请先勾选要采纳的改动");
     const st = stamp();
-    const r = await apply.run(patches);
-    if (!r) return;
-    if (!fresh(st)) return toast.message("采纳期间简历有变更，本次结果已丢弃，请重新生成建议");
-    if (!r.committed) return toast.error("改动会让简历结构不合法，已回退");
-    applyResume(r.resume);
-    const n = r.results.filter((x) => x.status === "applied").length;
-    // 诚实反馈：只报采纳数 + 剩余事实缺口，不报涨分
-    toast.success(`已采纳 ${n} 处（按「仅重述」规则生成，请逐条核实）`
-      + (supplements.length ? `；仍有 ${supplements.length} 项事实缺口需真实补充` : ""));
+    const busyId = "polish-panel-apply";
+    useAiBusyStore.getState().begin(busyId, "edit", apply.stop);
+    try {
+      const r = await apply.run(patches);
+      if (!r) return;
+      if (!fresh(st)) return toast.message("采纳期间简历有变更，本次结果已丢弃，请重新生成建议");
+      if (!r.committed) return toast.error("改动会让简历结构不合法，已回退");
+      applyResume(r.resume);
+      const n = r.results.filter((x) => x.status === "applied").length;
+      // 诚实反馈：只报采纳数 + 剩余事实缺口，不报涨分
+      toast.success(`已采纳 ${n} 处（按「仅重述」规则生成，请逐条核实）`
+        + (supplements.length ? `；仍有 ${supplements.length} 项事实缺口需真实补充` : ""));
+    } finally {
+      useAiBusyStore.getState().end(busyId);
+    }
   };
 
   return (
@@ -77,7 +90,7 @@ export function PolishPanel() {
       <Button disabled={gen.loading || !resume} onClick={runGen} className="mt-3 w-full">
         {improve ? "重新生成建议" : "生成修改建议"}
       </Button>
-      <TaskStatus loading={gen.loading} elapsed={gen.elapsed} stop={gen.stop} error={gen.error} />
+      <TaskStatus loading={false} elapsed={gen.elapsed} stop={gen.stop} error={gen.error} />
 
       {!improve && !gen.loading && (
         <p className="mt-3 text-copy-13 text-muted-foreground">简历变更后旧建议会自动失效（清空），防止把基于旧版的改动写进新版。</p>
@@ -124,7 +137,7 @@ export function PolishPanel() {
               <Button className="mt-2 w-full" disabled={apply.loading} onClick={runApply}>
                 采纳选中的 {chosen} 条
               </Button>
-              <TaskStatus loading={apply.loading} elapsed={apply.elapsed} stop={apply.stop} error={apply.error} />
+              <TaskStatus loading={false} elapsed={apply.elapsed} stop={apply.stop} error={apply.error} />
             </>
           )}
         </div>
