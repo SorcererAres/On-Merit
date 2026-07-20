@@ -184,14 +184,20 @@ def test_section_advice_prompt_and_validation():
     good = _fake_designer_eval()
     good["section_advice"] = {"exp": ["补量化结果", 123, "  "], "bogus": ["x"], "edu": "not-a-list"}
     norm = ev.validate_evaluation(r, good)
-    assert norm["section_advice"] == {"exp": ["补量化结果"]}
+    # 旧格式 string 转成 {"suggestion": ...} 对象
+    assert norm["section_advice"] == {"exp": [{"suggestion": "补量化结果"}]}
     assert ev.validate_evaluation(r, _fake_designer_eval())["section_advice"] == {}
     # 模型把多条建议打包进一条字符串 → 按「N. 」拆开；小数（36.5%）不误拆；剥 **加粗**
     packed = _fake_designer_eval()
     packed["section_advice"] = {"exp": ["1. **补量化**：周期缩短 36.5% 需注明口径。 2. 精简句式：合并重复表述。"]}
     got = ev.validate_evaluation(r, packed)["section_advice"]["exp"]
-    assert got == ["补量化：周期缩短 36.5% 需注明口径。", "精简句式：合并重复表述。"]
-    print("OK: section_advice prompt 声明 + 宽松规范化 + 编号拆条")
+    assert got == [{"suggestion": "补量化：周期缩短 36.5% 需注明口径。"}, {"suggestion": "精简句式：合并重复表述。"}]
+    # 新格式：{"suggestion": ..., "before": ..., "after": ...}
+    new_fmt = _fake_designer_eval()
+    new_fmt["section_advice"] = {"exp": [{"suggestion": "**补量化**：缺数据", "before": "原文", "after": "改写后"}, {"suggestion": "**精简**：重复"}]}
+    got2 = ev.validate_evaluation(r, new_fmt)["section_advice"]["exp"]
+    assert got2 == [{"suggestion": "补量化：缺数据", "before": "原文", "after": "改写后"}, {"suggestion": "精简：重复"}]
+    print("OK: section_advice prompt 声明 + 宽松规范化 + 编号拆条 + 新格式兼容")
 
 
 def test_diagnosis_prompt_format_requirements():

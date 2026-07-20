@@ -165,14 +165,34 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
                 {sectionAdviceEntries.map(([key, items]) => (
                   <section key={key} className="rounded-lg border border-border bg-muted/30 p-4">
                     <h4 className="text-button-14 text-foreground">{sectionLabels[key] || key}</h4>
-                    <ol className="mt-2 space-y-2">
+                    <div className="mt-2 space-y-3">
                       {items.map((item, idx) => (
-                        <li key={idx} className="flex gap-2 text-copy-13 text-muted-foreground">
-                          <span className="shrink-0 text-foreground">{idx + 1}.</span>
-                          <span>{item}</span>
-                        </li>
+                        <div key={idx} className="space-y-2">
+                          {/* 建议文本 */}
+                          <div className="flex gap-2 text-copy-13 text-muted-foreground">
+                            <span className="shrink-0 text-foreground">{idx + 1}.</span>
+                            <span>{typeof item === 'string' ? item : item.suggestion}</span>
+                          </div>
+                          {/* 优化前/后对比 */}
+                          {(typeof item !== 'string') && (item.before || item.after) && (
+                            <div className="ml-6 space-y-2 rounded-md border border-border bg-background p-3">
+                              {item.before && (
+                                <div>
+                                  <span className="text-label-12 text-amber-600">优化前</span>
+                                  <p className="mt-1 text-copy-13 text-muted-foreground">{item.before}</p>
+                                </div>
+                              )}
+                              {item.after && (
+                                <div>
+                                  <span className="text-label-12 text-green-600">优化后</span>
+                                  <p className="mt-1 text-copy-13 text-foreground">{item.after}</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       ))}
-                    </ol>
+                    </div>
                   </section>
                 ))}
               </div>

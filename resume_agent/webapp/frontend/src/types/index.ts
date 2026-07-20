@@ -66,13 +66,19 @@ export interface ImproveResult {
 }
 
 export interface CategoryScore { score: number; max: number; evidence: string }
+// 模块级建议（含优化前/后对比）
+export interface SectionAdvice {
+  suggestion: string;   // 建议文本（如"**补量化成果**：在"XX 公司"的经历中缺效果数据..."）
+  before?: string;       // 优化前（原文片段）
+  after?: string;       // 优化后（改写示例）
+}
 export interface Evaluation {
   scores: Record<string, CategoryScore>;
   bonus_points: { total: number; breakdown: string };
   deductions: { total: number; reasons: string };
   key_strengths: string[]; areas_for_improvement: string[];
   // 模块级建议（key 与画布 data-resume-module-section 一致），供画布对照卡；旧报告可能缺省
-  section_advice?: Record<string, string[]>;
+  section_advice?: Record<string, SectionAdvice[]>;
 }
 export interface EvalResult {
   evaluation: Evaluation; score: number; max: number; gaps: string[]; role_label: string;

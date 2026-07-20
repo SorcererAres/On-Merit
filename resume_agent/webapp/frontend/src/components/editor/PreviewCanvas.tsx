@@ -633,8 +633,10 @@ export function PreviewCanvas({ device, showPolish, onImport, printApi, leftAcce
           head.append(mark, title, fold);
           const list = idoc.createElement("ol");
           list.className = "cv-advice-list";
-          for (const text of items) {
+          for (const item of items) {
             const li = idoc.createElement("li");
+            // 兼容新旧格式：旧格式是 string，新格式是 {suggestion, before, after}
+            const text = typeof item === 'string' ? item : (item as {suggestion?: string}).suggestion || "";
             li.textContent = text;
             list.appendChild(li);
           }

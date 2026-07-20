@@ -159,7 +159,7 @@ def build_criteria_prompt(
     advice_rule = ""
     if sections:
         keys_line = "、".join(f"{s['key']}（{s['label']}）" for s in sections)
-        advice_fields = ",\n        ".join(f'"{s["key"]}": ["0-3 条针对该模块的具体建议"]' for s in sections)
+        advice_fields = ",\n        ".join(f'"{s["key"]}": [{{"suggestion": "建议文本", "before": "原文片段（可选）", "after": "改写示例（可选）"}}]' for s in sections)
         advice_schema = f""",
     "section_advice": {{
         {advice_fields}
@@ -167,8 +167,13 @@ def build_criteria_prompt(
         advice_rule = f"""
 ## 模块级建议（section_advice）
 按模块归属给出改进建议，key 只能取：{keys_line}。
-每条建议必须包含三要素：① **简短标题**（4-8 字，加粗）、② **具体问题**（引用该模块里的公司名/项目名/原文表述）、③ **改写方向 + 示例**（给出改写后的短语/句式模板，用「如」举例，X% 代替具体数字）。
-示例格式："**补量化成果**：在"XX 公司"的经历中缺效果数据，可补充"上线后用户观看时长提升 X%"或"投诉率下降 X%"，使成果更具说服力。"
+每条建议必须包含：① **简短标题**（4-8 字，加粗）、② **具体问题**（引用该模块里的公司名/项目名/原文表述）、③ **改写方向 + 示例**（给出改写后的短语/句式模板，用「如」举例，X% 代替具体数字）。
+**新增：对每个有具体问题的模块，给出「优化前」（原文片段）和「优化后」（改写示例）的对比。**
+输出格式为 JSON 对象数组，每个对象包含：
+- `suggestion`（必需）：建议文本，如"**补量化成果**：在"XX 公司"的经历中缺效果数据，可补充"上线后用户观看时长提升 X%"或"投诉率下降 X%"，使成果更具说服力。"
+- `before`（可选）：原文中存在问题的片段，用于展示优化前状态
+- `after`（可选）：改写后的示例文本，展示优化后效果
+示例：{{"suggestion": "**补量化成果**：在'XX 公司'的经历中缺效果数据，建议补充具体数据。", "before": "负责PICOVR直播及相关业务中的UX设计工作，根据项目需求输出交互设计方案。", "after": "负责PICOVR直播业务UX设计，用户观看时长提升56%，转化率提升8.76%。"}}
 一条数组元素只写一条建议，**不要**在单条文本内再用「1. 2. 3.」编号罗列多条；
 只能建议候选人**补充或核实真实信息**，绝不替候选人虚构任何事实；没有建议的模块给空数组。
 """
@@ -276,23 +281,39 @@ def validate_evaluation(rubric: Rubric, ev: Dict[str, Any]) -> Dict[str, Any]:
         return out[:5] or ["（无）"]
 
     # section_advice：宽松规范化（附加信息，不因不合规拒掉整次评估）——
-    # 只收合法模块 key 下的非空字符串，每模块至多 3 条、每条截断 300 字；其余悄悄丢弃。
+    # 只收合法模块 key 下的非空建议，每模块至多 3 条；其余悄悄丢弃。
+    # 兼容两种格式：
+    #   旧格式：string[] → 转成 {"suggestion": text} 对象
+    #   新格式：{"suggestion": ..., "before": ..., "after": ...}[] → 提取 suggestion/before/after
     # 模型偶尔把多条建议打包进一条字符串（"1. … 2. … 3. …"），按编号标记拆开；
     # 「\d+.␣」要求点后有空白，不会误拆 36.5% 这类小数。另剥掉 **markdown 加粗**（前端按纯文本渲染）。
     known_keys = {k for k, _, _ in _SECTION_DEFS}
     raw_advice = ev.get("section_advice")
-    norm_advice: Dict[str, List[str]] = {}
+    norm_advice: Dict[str, List[Dict[str, str]]] = {}
     if isinstance(raw_advice, dict):
         for key, items in raw_advice.items():
             if key not in known_keys or not isinstance(items, list):
                 continue
-            texts: List[str] = []
+            texts: List[Dict[str, str]] = []
             for s in items:
-                if not isinstance(s, str) or not s.strip():
-                    continue
-                parts = [p.strip() for p in _ADVICE_NUM_RE.split(s) if p.strip()]
-                for p in parts if len(parts) >= 2 else [s.strip()]:
-                    texts.append(p.replace("**", "")[:300])
+                # 新格式：{"suggestion": ..., "before": ..., "after": ...}
+                if isinstance(s, dict):
+                    suggestion = s.get("suggestion", "")
+                    if not isinstance(suggestion, str) or not suggestion.strip():
+                        continue
+                    before = s.get("before", "")
+                    after = s.get("after", "")
+                    obj: Dict[str, str] = {"suggestion": suggestion.replace("**", "")[:300]}
+                    if isinstance(before, str) and before.strip():
+                        obj["before"] = before.strip()[:500]
+                    if isinstance(after, str) and after.strip():
+                        obj["after"] = after.strip()[:500]
+                    texts.append(obj)
+                # 旧格式：string → 转成 {"suggestion": text}
+                elif isinstance(s, str) and s.strip():
+                    parts = [p.strip() for p in _ADVICE_NUM_RE.split(s) if p.strip()]
+                    for p in parts if len(parts) >= 2 else [s.strip()]:
+                        texts.append({"suggestion": p.replace("**", "")[:300]})
             if texts:
                 norm_advice[key] = texts[:3]
 
