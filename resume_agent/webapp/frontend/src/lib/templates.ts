@@ -6,11 +6,14 @@ export interface LayoutSettings {
   templateId: string;
   fontScale: number;
   lineHeight: number;
+  moduleSpacing: number;
+  pageMode: "auto" | "single";
   themeColor: string;   // 调色板枚举或 #RRGGBB
 }
 
 export const DEFAULT_LAYOUT: LayoutSettings = {
-  templateId: "classic", fontScale: 1.0, lineHeight: 1.5, themeColor: "ink",
+  templateId: "classic", fontScale: 1.0, lineHeight: 1.5,
+  moduleSpacing: 22, pageMode: "auto", themeColor: "ink",
 };
 
 // defaultTheme：选中该模板时顺带设的主题色（可再手动改）；layout 预留双栏引擎（阶段 3）。
@@ -40,14 +43,15 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 const themeHex = (c: string) => THEME_COLORS.find((t) => t.id === c)?.hex ?? (HEX.test(c) ? c : "#1a1a1a");
 
 const BASE = `
-:root{ --muted:#6b7280; --line:#e5e7eb; --canvas:#f5f5f4; --paper:#fff; --accent:#1a1a1a; --fs:1; --lh:1.5; }
+:root{ --muted:#6b7280; --line:#e5e7eb; --canvas:#edeef2; --paper:#fff; --accent:#1a1a1a; --fs:1; --lh:1.5; --module-gap:22px; }
+/* --canvas 与 tokens.css 的 --resume-canvas 同值（Figma 1004:1018）：iframe 内外灰底无缝拼接 */
 *{box-sizing:border-box;} html,body{margin:0;padding:0;}
 body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiased;
   font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
 /* 纵向多页画布（预览由外层分页器把内容切成多张 A4 .page）；单页时视觉与旧版一致 */
-.canvas{display:flex;flex-direction:column;align-items:center;gap:24px;padding:24px;min-height:100vh;}
+.canvas{display:flex;flex-direction:column;align-items:center;gap:26px;padding:26px 24px;min-height:100vh;}
 .page{ background:var(--paper); width:794px; min-height:1123px; padding:56px 64px;
-  box-shadow:0 2px 12px rgba(0,0,0,.16); position:relative; zoom:var(--fit,1);
+  border-radius:12px; position:relative; zoom:var(--fit,1);
   overflow:hidden; /* 屏幕分页后单元超高时不压下页；打印媒体重置为 visible */
   font-size:calc(14px * var(--fs)); line-height:var(--lh); }
 .cv-head{margin-bottom:20px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px;}
@@ -58,7 +62,7 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 .cv-subline{margin:6px 0 0;font-size:calc(12.5px * var(--fs));color:var(--muted);}
 .cv-contact{margin:8px 0 0;font-size:calc(12.5px * var(--fs));color:var(--muted);}
 .cv-tags{margin:8px 0 0;font-size:calc(12px * var(--fs));color:var(--accent);}
-.page h2{font-size:calc(15px * var(--fs));font-weight:700;margin:22px 0 12px;padding-bottom:6px;
+.page h2{font-size:calc(15px * var(--fs));font-weight:700;margin:var(--module-gap) 0 12px;padding-bottom:6px;
   border-bottom:1px solid var(--line);}
 .page h3{font-size:calc(14px * var(--fs));font-weight:700;margin:14px 0 4px;}
 .page p{margin:0 0 8px;}
@@ -72,10 +76,17 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 .page th,.page td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top;}
 .page th{font-weight:700;color:var(--muted);font-size:calc(12px * var(--fs));text-transform:uppercase;letter-spacing:.04em;}
 .page blockquote{margin:10px 0;padding:4px 14px;border-left:3px solid var(--accent);color:var(--muted);}
+.cv-entry-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin:0 0 5px;}
+.cv-entry-primary{font-weight:700;}
+.cv-entry-dates{flex:0 0 auto;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.cv-entry-details{margin:0 0 8px;color:inherit;}
+.cv-static-field{display:inline;}
 .page > *:first-child{margin-top:0;}
+.page.single-page{height:1123px;min-height:1123px;max-height:1123px;overflow:hidden;}
 @media print{ :root{--fit:1 !important;} body{background:#fff;} .canvas{padding:0;display:block;gap:0;}
   /* 屏幕分页的多张 .page 在打印时摊平为连续流，由浏览器按 @page 原生分页（导出以此为准） */
-  .page{zoom:1;width:auto;min-height:auto;box-shadow:none;padding:0;overflow:visible;} .page h2{break-after:avoid;}
+  .page{zoom:1;width:auto;min-height:auto;border-radius:0;padding:0;overflow:visible;} .page h2{break-after:avoid;}
+  .page.single-page{height:265mm;min-height:265mm;max-height:265mm;overflow:hidden;}
   .page li,.page tr{break-inside:avoid;} a{color:var(--ink,#1a1a1a);} }
 @page{size:A4;margin:16mm 14mm;}
 `;
@@ -84,18 +95,21 @@ body{ background:var(--canvas); color:#1a1a1a; -webkit-font-smoothing:antialiase
 // 双栏不参与分页（见 PreviewCanvas），单页超高时纵向增长不裁切。
 const TWO_COL_BASE = `
 .page.two-col{display:flex;gap:0;padding:0;overflow:visible;height:auto;align-items:stretch;}
-.two-col .col-side{flex:0 0 33%;padding:40px 26px;background:var(--side-bg,#f6f7f7);}
+/* 双栏 .page overflow:visible（内容超高纵向增长），圆角靠侧栏自身收边；主栏透明，右侧圆角由 .page 本体呈现 */
+.two-col .col-side{flex:0 0 33%;padding:40px 26px;background:var(--side-bg,#f6f7f7);border-radius:12px 0 0 12px;}
 .two-col .col-main{flex:1 1 auto;min-width:0;padding:44px 40px;}
 .two-col .cv-head{display:block;margin:0 0 20px;text-align:left;}
 .two-col .cv-head h1{font-size:calc(23px * var(--fs));}
 .two-col .cv-photo{display:block;width:calc(96px * var(--fs));height:calc(96px * var(--fs));border-radius:10px;margin:0 0 14px;}
-.two-col .col-side h2{margin:18px 0 8px;font-size:calc(13px * var(--fs));border-bottom:none;
+.two-col .col-side h2{margin:var(--module-gap) 0 8px;font-size:calc(13px * var(--fs));border-bottom:none;
   padding-bottom:0;letter-spacing:.06em;color:var(--accent);}
 .two-col .col-side > *:first-child{margin-top:0;}
 .two-col .col-side ul{padding-left:16px;} .two-col .col-side p{font-size:calc(13px * var(--fs));}
 .two-col .col-main h2:first-of-type{margin-top:0;}
+.page.two-col.single-page{height:1123px;min-height:1123px;max-height:1123px;overflow:hidden;}
 /* 基础打印规则把 .page min-height 归 auto；双栏需恢复满页高，否则内容短时侧栏底色只到内容底、页面下半留白 */
-@media print{ .page.two-col{overflow:visible;min-height:100vh;} .two-col .col-side{-webkit-print-color-adjust:exact;print-color-adjust:exact;} }
+@media print{ .page.two-col{overflow:visible;min-height:100vh;} .page.two-col.single-page{height:265mm;min-height:265mm;max-height:265mm;overflow:hidden;}
+  .two-col .col-side{-webkit-print-color-adjust:exact;print-color-adjust:exact;border-radius:0;} }
 `;
 
 const SKINS: Record<string, string> = {
@@ -123,7 +137,7 @@ const SKINS: Record<string, string> = {
   minimal: `
     .cv-head h1{font-weight:600;}
     .page h2{border-bottom:none;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);
-      font-size:calc(11.5px * var(--fs));margin:24px 0 10px;}
+      font-size:calc(11.5px * var(--fs));margin:var(--module-gap) 0 10px;}
     .page{padding:64px 72px;}
     .page a{text-decoration:none;color:var(--accent);}`,
   ats: `
@@ -163,6 +177,7 @@ export function buildDocCss(layout: LayoutSettings): string {
   const tid = SKINS[layout.templateId] !== undefined ? layout.templateId : "classic";
   const fs = Math.max(0.85, Math.min(1.25, layout.fontScale || 1));
   const lh = Math.max(1.2, Math.min(2.0, layout.lineHeight || 1.5));
-  const vars = `:root{ --accent:${themeHex(layout.themeColor)}; --fs:${fs}; --lh:${lh}; }`;
+  const moduleSpacing = Math.max(12, Math.min(36, layout.moduleSpacing || 22));
+  const vars = `:root{ --accent:${themeHex(layout.themeColor)}; --fs:${fs}; --lh:${lh}; --module-gap:${moduleSpacing}px; }`;
   return BASE + SKINS[tid] + vars;
 }

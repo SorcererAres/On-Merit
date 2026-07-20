@@ -1,16 +1,18 @@
 // 编辑表单 v3 可复用控件（分节手风琴 / 年月区间 / 标签输入 / 计数文本域 / 条目卡 / 字段行）。
 // 描述字段本期用计数 Textarea（富文本留 E3）。样式取既有 token。
-import { useLayoutEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 import { postJSON } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input, Textarea } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { toast } from "sonner";
 import {
   ChevronDown, Trash2, Plus, X,
-  Bold, Italic, List, ListOrdered, Sparkles, Loader2,
+  Bold, Italic, List, ListOrdered, Sparkles, Loader2, CircleAlert,
 } from "lucide-react";
 
 /** 分节手风琴：标题 + 可收起 ^；右侧插槽放「移除模块」等 */
@@ -18,19 +20,24 @@ export function AccordionSection({ title, children, right, id }: {
   title: string; children: React.ReactNode; right?: React.ReactNode; id?: string;
 }) {
   const [open, setOpen] = useState(true);
+  const contentId = id ? `${id}-content` : undefined;
   return (
-    <section id={id} className="border-b border-border px-5 py-4">
+    <section id={id} className="border-b border-border px-5 py-1">
       <div className="flex items-center">
-        <h3 className="text-heading-16 text-foreground">{title}</h3>
-        <div className="ml-auto flex items-center gap-2">
-          {right}
-          <button aria-label={open ? "收起" : "展开"} onClick={() => setOpen(!open)}
-            className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-foreground">
-            <ChevronDown className={cn("h-4 w-4 transition", open ? "" : "-rotate-90")} />
-          </button>
-        </div>
+        <h3 className="min-w-0 flex-1">
+          {/* 整行仍可点；chevron 收进浅灰圆角小方块（Figma 分组头样式），hover 只亮小方块不铺整行 */}
+          <Button type="button" variant="ghost" aria-expanded={open} aria-controls={contentId}
+            onClick={() => setOpen(!open)}
+            className="group h-11 w-full justify-between px-0 text-left hover:bg-transparent active:scale-100">
+            <span className="truncate text-heading-16 text-foreground">{title}</span>
+            <span aria-hidden className="flex h-7 w-8 shrink-0 items-center justify-center rounded-header bg-muted text-muted-foreground transition-colors duration-state group-hover:bg-accent group-hover:text-foreground">
+              <ChevronDown className={cn("h-4 w-4 transition-transform duration-state", open ? "" : "-rotate-90")} />
+            </span>
+          </Button>
+        </h3>
+        {right && <div className="ml-1 flex shrink-0 items-center">{right}</div>}
       </div>
-      {open && <div className="mt-3 space-y-3">{children}</div>}
+      {open && <div id={contentId} className="space-y-3 pb-3 pt-2">{children}</div>}
     </section>
   );
 }
@@ -40,37 +47,49 @@ export function AccordionSection({ title, children, right, id }: {
 const FOCUS_RING = "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background";
 
 /** 字段行：左标签 + 右控件，错误态红框红字（label 带 * 表必填） */
-export function Field({ label, required, error, children }: {
-  label: string; required?: boolean; error?: string; children: React.ReactNode;
+export function Field({ label, required, error, path, children }: {
+  label: string; required?: boolean; error?: string; path?: string; children: React.ReactNode;
 }) {
+  const errorId = path ? `field-error-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}` : undefined;
+  const control = error && errorId && isValidElement<{ "aria-invalid"?: boolean; "aria-describedby"?: string }>(children)
+    ? cloneElement(children, { "aria-invalid": true, "aria-describedby": errorId })
+    : children;
   return (
-    <div>
-      <div className={cn("flex min-h-[40px] items-center rounded-[8px] border px-3", FOCUS_RING,
+    <div data-field-path={path}>
+      <div className={cn("flex min-h-11 items-center rounded-md border px-3", FOCUS_RING,
         error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">
           {label}{required && <span className="ml-0.5 text-destructive">*</span>}
         </label>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="min-w-0 flex-1">{control}</div>
       </div>
-      {error && <p className="mt-1 pl-3 text-label-12 text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} className="mt-1 flex items-center gap-1 pl-3 text-label-12 text-destructive">
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {error}
+        </p>
+      )}
     </div>
   );
 }
 
 /** 裸输入（嵌在 Field 内，无边框，边框由 Field 提供）。下拉一律用 ui/select（shadcn）。 */
 export function BareInput(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...p} className={cn("w-full bg-transparent py-2 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none", p.className)} />;
+  return <Input {...p} className={cn("border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0", p.className)} />;
 }
 
 /** 年月区间：开始/结束用组件库 MonthPicker + 结束「至今」勾选（勾选存字面「至今」，渲染照旧）。 */
-export function MonthRange({ label, start, end, onStart, onEnd, error }: {
+export function MonthRange({ label, start, end, onStart, onEnd, error, path }: {
   label: string; start?: string; end?: string;
-  onStart: (v: string) => void; onEnd: (v: string) => void; error?: string;
+  onStart: (v: string) => void; onEnd: (v: string) => void; error?: string; path?: string;
 }) {
   const present = end === "至今";
+  const errorId = path ? `field-error-${path.replace(/[^a-zA-Z0-9_-]/g, "-")}` : undefined;
   return (
-    <div>
-      <div className={cn("flex min-h-[40px] items-center rounded-[8px] border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
+    <div data-field-path={path}>
+      <div role={error ? "group" : undefined} aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        className={cn("flex min-h-11 items-center rounded-md border px-3", FOCUS_RING, error ? "border-destructive" : "border-border")}>
         <label className="w-20 shrink-0 text-copy-14 text-muted-foreground">{label}</label>
         <div className="flex min-w-0 flex-1 items-center">
           <div className="min-w-0 flex-1"><MonthPicker value={start} onChange={onStart} placeholder="开始月份" ariaLabel={`${label}开始月份`} /></div>
@@ -81,13 +100,18 @@ export function MonthRange({ label, start, end, onStart, onEnd, error }: {
               : <MonthPicker value={end} onChange={onEnd} placeholder="结束月份" ariaLabel={`${label}结束月份`} />}
           </div>
           <label className="ml-2 flex shrink-0 items-center gap-1 text-label-12 text-muted-foreground">
-            <Checkbox className="h-3.5 w-3.5" checked={present}
-              onChange={(e) => onEnd(e.target.checked ? "至今" : "")} />
+            <Checkbox checked={present}
+              onCheckedChange={(checked) => onEnd(checked === true ? "至今" : "")} />
             至今
           </label>
         </div>
       </div>
-      {error && <p className="mt-1 pl-3 text-label-12 text-destructive">{error}</p>}
+      {error && (
+        <p id={errorId} className="mt-1 flex items-center gap-1 pl-3 text-label-12 text-destructive">
+          <CircleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -104,25 +128,28 @@ export function TagInput({ label, tags, onChange, max = 8, maxLen = 20, placehol
     setDraft("");
   };
   return (
-    <div className={cn("flex min-h-[40px] items-center rounded-[8px] border border-border px-3", FOCUS_RING)}>
+    <div className={cn("flex min-h-11 items-center rounded-md border border-border px-3", FOCUS_RING)}>
       <label className="w-20 shrink-0 py-2 text-copy-14 text-muted-foreground">{label}</label>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 py-1">
         {tags.map((t, i) => (
           <span key={i} className="flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-label-12 text-foreground">
             {t}
-            <button aria-label={`删除标签 ${t}`} onClick={() => onChange(tags.filter((_, j) => j !== i))}
-              className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+            <Button type="button" variant="ghost" aria-label={`删除标签 ${t}`}
+              onClick={() => onChange(tags.filter((_, j) => j !== i))}
+              className="-mr-2 h-11 w-11 px-0 text-muted-foreground hover:text-foreground">
+              <X className="h-3 w-3" />
+            </Button>
           </span>
         ))}
         {tags.length < max && (
-          <input value={draft} placeholder={tags.length ? "" : placeholder}
+          <Input value={draft} placeholder={tags.length ? "" : placeholder}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
               else if (e.key === "Backspace" && !draft && tags.length) onChange(tags.slice(0, -1));
             }}
             onBlur={add}
-            className="min-w-[80px] flex-1 bg-transparent py-1 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+            className="min-h-0 min-w-20 flex-1 border-0 bg-transparent px-0 py-1 focus-visible:ring-0 focus-visible:ring-offset-0" />
         )}
       </div>
     </div>
@@ -136,10 +163,10 @@ export function CountedTextarea({ value, onChange, placeholder, max = 1000, onFo
 }) {
   const v = value ?? "";
   return (
-    <div className={cn("rounded-[8px] border border-border p-3", FOCUS_RING)}>
-      <textarea value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
+    <div className={cn("rounded-md border border-border p-3", FOCUS_RING)}>
+      <Textarea value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
         onChange={(e) => onChange(e.target.value.slice(0, max))}
-        className="w-full resize-none bg-transparent text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        className="resize-none border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0" />
       <div className="mt-1 text-right text-label-12 text-muted-foreground">{v.length}/{max}</div>
     </div>
   );
@@ -253,51 +280,46 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
     return { text: t.slice(0, ls) + nb + t.slice(end), sel: [ls, ls + nb.length] };
   });
   const TBtn = ({ label, on, children }: { label: string; on: () => void; children: React.ReactNode }) => (
-    <button type="button" aria-label={label} title={label}
+    <Button type="button" variant="ghost" aria-label={label} title={label}
       onMouseDown={(e) => e.preventDefault()} onClick={on}
-      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground">
+      className="h-11 w-11 shrink-0 px-0 text-muted-foreground hover:text-foreground">
       {children}
-    </button>
+    </Button>
   );
   const polishReady = !!polishKind && v.trim().length >= 10;
   const AiChip = ({ label, on, enabled, busy }: { label: string; on?: () => void; enabled?: boolean; busy?: boolean }) => (
-    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!enabled || busy}
+    <Button type="button" variant="ghost" onMouseDown={(e) => e.preventDefault()} onClick={on} disabled={!enabled || busy}
       title={enabled ? label : (polishKind ? `${label}（至少填 10 字）` : `${label}（即将上线）`)}
-      className={cn("flex h-7 items-center gap-1 rounded-full px-2.5 text-copy-13",
-        enabled && !busy ? "text-green-800 hover:opacity-80" : "text-green-800/50 cursor-default")}
-      style={{ background: "var(--green-100)" }}>
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {label}
-    </button>
+      className="shrink-0 whitespace-nowrap rounded-full bg-green-100 px-3 text-green-900 hover:bg-green-200">
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+      <span className="text-copy-13">{label}</span>
+    </Button>
   );
   return (
-    <div className={cn("rounded-[8px] border border-border", FOCUS_RING)}>
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
+    <div className={cn("rounded-md border border-border", FOCUS_RING)}>
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5 border-b border-border px-2 py-1.5">
         <TBtn label="加粗" on={() => wrap("**")}><Bold className="h-4 w-4" /></TBtn>
         <TBtn label="斜体" on={() => wrap("*")}><Italic className="h-4 w-4" /></TBtn>
-        <span className="mx-1 h-4 w-px bg-border" />
+        <span className="mx-1 h-4 w-px shrink-0 bg-border" />
         <TBtn label="无序列表" on={() => prefixLines(false)}><List className="h-4 w-4" /></TBtn>
         <TBtn label="有序列表" on={() => prefixLines(true)}><ListOrdered className="h-4 w-4" /></TBtn>
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <AiChip label="AI 润色" on={doPolish} enabled={polishReady} busy={polishing} />
           <AiChip label="AI 生成" on={doGenerate} enabled={!!polishKind} busy={generating} />
         </div>
       </div>
       <div className="p-3">
-        <textarea ref={ref} value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
+        <Textarea ref={ref} value={v} placeholder={placeholder} rows={4} onFocus={onFocus}
           onChange={(e) => onChange(e.target.value.slice(0, max))}
-          className="w-full resize-none bg-transparent text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+          className="resize-none border-0 bg-transparent p-0 focus-visible:ring-0 focus-visible:ring-offset-0" />
         <div className="mt-1 text-right text-label-12 text-muted-foreground">{v.length}/{max}</div>
       </div>
 
       {result && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setResult(null); }}>
-          <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-heading-20">AI 润色 · 逐条核实</h3>
-              <button aria-label="关闭" onClick={() => setResult(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </div>
-            <p className="mb-3 text-label-12 text-muted-foreground">按「仅重述已有事实」规则生成，未新增数字（确定性校验）；但文本性新表述仍需你核实，请对照原文。</p>
+        <Dialog open onOpenChange={(open) => { if (!open) setResult(null); }}>
+          <DialogContent className="flex max-h-dialog max-w-2xl flex-col gap-0 p-5">
+            <DialogTitle className="mb-1 pr-12">AI 润色 · 逐条核实</DialogTitle>
+            <DialogDescription className="mb-3 text-label-12">按「仅重述已有事实」规则生成，未新增数字（确定性校验）；但文本性新表述仍需你核实，请对照原文。</DialogDescription>
             <div className="grid min-h-0 flex-1 grid-cols-2 gap-3 overflow-y-auto">
               <div>
                 <div className="mb-1 text-label-12 text-muted-foreground">原文</div>
@@ -317,23 +339,19 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
               <Button variant="secondary" onClick={() => setResult(null)}>放弃</Button>
               <Button onClick={adopt}>采纳</Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {genResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setGenResult(null); }}>
-          <div className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="text-heading-20">AI 生成 · {genResult.mode === "extract" ? "原件提取" : "结构模板"}</h3>
-              <button aria-label="关闭" onClick={() => setGenResult(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-            </div>
-            <p className="mb-3 text-label-12 text-muted-foreground">
+        <Dialog open onOpenChange={(open) => { if (!open) setGenResult(null); }}>
+          <DialogContent className="flex max-h-dialog max-w-xl flex-col gap-0 p-5">
+            <DialogTitle className="mb-1 pr-12">AI 生成 · {genResult.mode === "extract" ? "原件提取" : "结构模板"}</DialogTitle>
+            <DialogDescription className="mb-3 text-label-12">
               {genResult.mode === "extract"
                 ? "以下内容抽取自你导入的原件（逐句核对出处），请再次核实无误后采纳。"
                 : "这是一份结构模板，不含任何具体事实——采纳后请把方括号占位替换为你的真实经历。"}
-            </p>
+            </DialogDescription>
             <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-copy-13 text-foreground">
               {genResult.md}
             </div>
@@ -344,8 +362,8 @@ export function RichTextarea({ value, onChange, placeholder, max = 1000, onFocus
               <Button variant="secondary" onClick={() => setGenResult(null)}>放弃</Button>
               <Button onClick={adoptGen}>采纳</Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
@@ -356,13 +374,13 @@ export function ItemCard({ title, onDelete, children }: {
   title: string; onDelete: () => void; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-[10px] border border-border p-3">
+    <div className="rounded-md border border-border p-3">
       <div className="mb-2 flex items-center">
         <span className="truncate text-button-14 text-foreground">{title}</span>
-        <button aria-label="删除该条" onClick={onDelete}
-          className="ml-auto flex h-7 w-7 items-center justify-center text-muted-foreground hover:text-destructive">
+        <Button type="button" variant="ghost" aria-label="删除该条" onClick={onDelete}
+          className="ml-auto h-11 w-11 px-0 text-muted-foreground hover:text-destructive">
           <Trash2 className="h-4 w-4" />
-        </button>
+        </Button>
       </div>
       <div className="space-y-2.5">{children}</div>
     </div>
@@ -372,10 +390,9 @@ export function ItemCard({ title, onDelete, children }: {
 /** 绿色「⊕ 新增 XX」 */
 export function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick}
-      className="flex items-center gap-1.5 text-button-14"
-      style={{ color: "var(--green-700)" }}>
+    <Button type="button" variant="ghost" onClick={onClick}
+      className="justify-start px-2 text-button-14 text-green-900">
       <Plus className="h-4 w-4" /> {label}
-    </button>
+    </Button>
   );
 }

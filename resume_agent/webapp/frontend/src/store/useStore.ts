@@ -70,6 +70,7 @@ interface State {
   setImported: (r: Resume, warnings: Warning[], usedOcr: boolean, sourceText: string | null) => void;
   setLinkQuery: (q: string | null) => void;
   editResume: (r: Resume) => void;
+  editResumeFromPreview: (r: Resume) => void;
   setJD: (jd: string) => void;
   setRole: (role: string) => void;
   setTitle: (title: string) => void;
@@ -108,6 +109,9 @@ export const useStore = create<State>((set) => ({
   setImported: (r, warnings, usedOcr, sourceText) => set(replaceDoc(r, { warnings, usedOcr, sourceText })),
   setLinkQuery: (q) => set({ linkQuery: q }),
   applyResume: (r) => set(replaceDoc(r)),
+  // 画布内联编辑属于外部文档替换：重挂左侧本地草稿，确保两处编辑器立即同步。
+  // 与导入不同，不改 warnings/sourceText；replaceDoc 仍统一推进 dirty/contentSeq/hydrationKey。
+  editResumeFromPreview: (r) => set(replaceDoc(r)),
 
   // 内容变更 → +contentSeq（报告标记过期，不销毁）；jd/role 变更走普通 bump（报告过期由 stamp 按值比较推导）
   editResume: (r) => set(bumpContent({ resume: r, improve: null })),

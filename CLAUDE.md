@@ -23,6 +23,7 @@
 ### ⚠️ 已知陷阱
 - `components.json` 里 `aliases.utils` 是 `@/lib/utils`，但项目实际 `cn` 在 **`src/lib/cn.ts`**。用 `shadcn add` 生成的新组件会 `import { cn } from "@/lib/utils"` —— **务必改成 `@/lib/cn`**（或建立 re-export）。
 - Geist token 提供 P3 广色域覆盖，改 token 时 `:root` 与 `.dark` 两处语义别名都要同步。
+- `src/lib/cn.ts` 的 `twMerge` 已用 `extendTailwindMerge` 注册全部自定义排版 token（`text-heading-*` / `text-copy-*` / `text-label-*` / `text-button-*`）。**新增 fontSize token 时必须同步注册**，否则 twMerge 会把新字号类误判为颜色类，与同链 `text-*-foreground` 互斥导致字号被静默剥掉（回退 16px）。
 
 ### 产品边界（与反编造立场相关）
 - 不做「AI 一键生成整份简历」、不做「模拟面试报告」——这两项与项目反编造立场冲突，UI 上不要新增此类入口。

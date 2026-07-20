@@ -13,6 +13,8 @@ const MAX_RETRIES = 4;                      // 连续失败的自动重试次数
 
 export function useAutoSave(id: string) {
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const savingRef = useRef(false);
   const mountedRef = useRef(true);
   const timerRef = useRef<number | null>(null);
@@ -20,6 +22,7 @@ export function useAutoSave(id: string) {
   const retryCountRef = useRef(0);           // 连续失败计数；成功或新编辑归零
   const clearRetry = () => {
     if (retryTimerRef.current) { window.clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+    if (mountedRef.current) setRetrying(false);
   };
 
   const run = async (): Promise<void> => {
@@ -30,7 +33,8 @@ export function useAutoSave(id: string) {
     const seq = s.editSeq;                 // savePoint（title/dirty）
     const layoutSeqAtSave = s.layoutSeq;   // layout 专属 savePoint
     const loadSeq = s.loadSeq;             // 语境戳：重载后丢弃本次结果
-    savingRef.current = true; setSaving(true);
+    savingRef.current = true;
+    if (mountedRef.current) { setSaving(true); setSaveError(null); }
     let committed = false;                  // 本次是否成功落库（决定是否 trailing）
     try {
       const r = await putJSON<ResumeRecord>(`/api/resumes/${id}`, {
@@ -45,6 +49,7 @@ export function useAutoSave(id: string) {
         cur.markSaved({ seq, version: r.version, title: r.title,
           layoutSettings: r.layout_settings ?? null, layoutSeqAtSave });
         committed = true; retryCountRef.current = 0;   // 成功：重置失败计数
+        if (mountedRef.current) { setSaveError(null); setRetrying(false); }
       }
       // 语境已换（重载/切简历）：丢弃结果，不 markSaved，不 trailing
     } catch (e) {
@@ -53,19 +58,23 @@ export function useAutoSave(id: string) {
         // 语境已换：与本组件无关，不处理
       } else if ((e as ApiErr)?.code === "VERSION_CONFLICT") {
         cur.setConflict();
+        if (mountedRef.current) setSaveError("这份简历已在其他位置更新，请先处理版本冲突");
       } else {
         // 仅对「可重试」错误（网络/429/5xx）做指数退避重试，且限次数、组件仍挂载；
         // 确定性 400（如结构非法）不重试——重试也不会变好，留 dirty 待用户改后再存。
         const retryable = !(e instanceof ApiErr) || e.retryable;
+        if (mountedRef.current) setSaveError((e as Error)?.message || "无法连接保存服务");
         if (mountedRef.current && retryable && retryCountRef.current < MAX_RETRIES) {
           clearRetry();
           const delay = RETRY_MS * 2 ** retryCountRef.current;   // 4s → 8s → 16s → 32s
           retryCountRef.current += 1;
+          setRetrying(true);
           retryTimerRef.current = window.setTimeout(() => { retryTimerRef.current = null; void runRef.current(); }, delay);
         }
       }
     } finally {
-      savingRef.current = false; setSaving(false);
+      savingRef.current = false;
+      if (mountedRef.current) setSaving(false);
       // 仅在「本次已成功落库」且期间有更新编辑时才 trailing——否则失败会自触发无退避死循环。
       const s2 = useStore.getState();
       if (committed && s2.editSeq > s2.savedSeq && !s2.conflict && s2.resumeId === id && s2.loadSeq === loadSeq) {
@@ -80,6 +89,7 @@ export function useAutoSave(id: string) {
     const unsub = useStore.subscribe((st, prev) => {
       if (st.editSeq !== prev.editSeq) {
         retryCountRef.current = 0;         // 有新编辑：重置失败退避（新内容值得重新尝试）
+        setSaveError(null);
         if (timerRef.current) window.clearTimeout(timerRef.current);
         timerRef.current = window.setTimeout(() => void runRef.current(), DEBOUNCE);
       }
@@ -102,5 +112,5 @@ export function useAutoSave(id: string) {
     return !s.conflict && s.editSeq <= s.savedSeq;
   };
 
-  return { saving, saveNow };
+  return { saving, saveNow, saveError, retrying };
 }

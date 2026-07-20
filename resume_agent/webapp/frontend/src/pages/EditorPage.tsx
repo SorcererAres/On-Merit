@@ -1,10 +1,10 @@
-// 文档外壳 · v3（按 Figma All-IN-AI 835:164 重构）：全局顶栏 + 三栏工作台，双模式「诊断/排版」。
+// 文档外壳 · v3（按 Figma All-IN-AI 835:164 重构）：全局顶栏 + 三栏工作台，三级导航。
 // - 外壳唯一负责 loadRecord/useAutoSave(id)/409/离开守卫（useBlocker 同 pathname 放行，仅切 ?mode 不拦）。
 // - 诊断模式：左「编辑简历」(SectionEditor) | 中 A4 预览（预览/原件 tab + AI 润色）| 右「诊断/AI 润色」。
-// - 排版模式：左「模板」| 中 A4 预览 | 右「样式」（多端 + 导出 PDF）。
+// - 模板模式：左「模板」| 中 A4 预览 | 右「样式」；布局模式：左「布局」| 中预览 | 右「页面样式」。
 // - 「优化」并入「AI 润色」按钮（右栏切 polish 面板）；undo/redo 为防抖分组快照栈（上限 50）。
 // - 旧链接 ?step=optimize→诊断、?step=export→排版。
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useBlocker, useSearchParams } from "react-router-dom";
 import { getJSON, postJSON } from "@/lib/api";
 import { useAutoSave } from "@/lib/useAutoSave";
@@ -14,25 +14,39 @@ import { SectionEditor } from "@/components/editor/SectionEditor";
 import { PreviewCanvas } from "@/components/editor/PreviewCanvas";
 import { DiagnosePanel } from "@/components/editor/DiagnosePanel";
 import { validateResumeForm } from "@/lib/validateResumeForm";
+import type { FormIssue } from "@/lib/validateResumeForm";
 import { PolishPanel } from "@/components/editor/PolishPanel";
-import { TemplatesPanel, StylePanel } from "@/components/editor/LayoutPanels";
+import { PageLayoutPanel, StylePanel } from "@/components/editor/LayoutPanels";
 import { ImportDialog } from "@/components/editor/ImportDialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/misc";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+  DropdownMenuShortcut, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScoreCard } from "@/components/ScoreCard";
 import { MatchReportView } from "@/components/MatchReportView";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
 import { confirmDialog } from "@/components/confirm";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import type { Diagnosis } from "@/store/useStore";
 import {
-  ArrowLeft, PanelLeft, Columns2, PanelRight,
-  Upload, Download, Save, X, History, FileClock, Check, ChevronLeft,
-  FileText, Sparkles,
+  ArrowLeft, PanelLeftOpen, PanelRightOpen, MoreHorizontal,
+  Upload, Download, History, FileClock, ChevronLeft,
+  FileText, Sparkles, Undo2, Redo2, RefreshCw, CircleAlert, TriangleAlert, ChevronRight,
 } from "lucide-react";
 
 type Mode = "diagnose" | "layout";
 type RightView = "diagnose" | "polish";
+type PreflightAction = "diagnose" | "export";
 interface RevisionMeta { id: string; note: string; created_at: string }
 interface ReportMeta {
   id: string; role: string; role_label: string;
@@ -42,26 +56,37 @@ interface ReportFull extends ReportMeta { report: Diagnosis }
 
 const UNDO_LIMIT = 50;
 const SNAP_DEBOUNCE = 600;
+const MOBILE_QUERY = "(max-width: 960px)";
+const RIGHT_DRAWER_QUERY = "(max-width: 1199px)";
 
 /** 面板标题栏（左右栏共用）：44px，标题 14px 中黑 + 右侧图标组 */
-function PanelBar({ title, children }: { title: string; children?: React.ReactNode }) {
+function PanelBar({ title, children, reserveClose = false }: {
+  title: string; children?: React.ReactNode; reserveClose?: boolean;
+}) {
   return (
-    <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
-      <span className="text-heading-16 text-foreground">{title}</span>
+    <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-4",
+      reserveClose ? "pr-14" : "pr-4")}>
+      <span className="text-heading-14 text-foreground">{title}</span>
       <div className="ml-auto flex items-center gap-1">{children}</div>
     </div>
   );
 }
-function IconBtn({ children, label, onClick, disabled }: {
-  children: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean;
-}) {
+const IconBtn = forwardRef<HTMLButtonElement, {
+  children: React.ReactNode; label: string; onClick?: () => void; disabled?: boolean; className?: string;
+}>(function IconBtn({ children, label, onClick, disabled, className }, ref) {
   return (
-    <button aria-label={label} title={label} onClick={onClick} disabled={disabled}
-      className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground">
-      {children}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button type="button" variant="ghost" aria-label={label} onClick={onClick} disabled={disabled}
+          ref={ref}
+          className={cn("h-11 w-11 px-0 text-muted-foreground hover:text-foreground disabled:hover:text-muted-foreground", className)}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={8}>{label}</TooltipContent>
+    </Tooltip>
   );
-}
+});
 
 export function EditorPage() {
   const { id = "" } = useParams();
@@ -69,33 +94,101 @@ export function EditorPage() {
   const [sp, setSp] = useSearchParams();
   // 模式：?mode=，兼容旧 ?step=（optimize→diagnose、export→layout）
   const raw = sp.get("mode") ?? sp.get("step");
-  const mode: Mode = raw === "layout" || raw === "export" ? "layout" : "diagnose";
-  const setMode = (m: Mode) => setSp({ mode: m }, { replace: true });
+  const mode: Mode = raw === "layout" || raw === "template" || raw === "export" ? "layout" : "diagnose";
 
   const {
-    title, resumeId, version, dirty, conflict, hydrationKey, resume,
+    title, resumeId, dirty, conflict, hydrationKey, resume,
     loadRecord, setTitle, restoreSnapshot,
   } = useStore();
-  const { saving, saveNow } = useAutoSave(id);
+  const { saving, saveNow, saveError, retrying } = useAutoSave(id);
 
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [rightOpen, setRightOpen] = useState(true);
+  // 宽屏固定三栏；中屏保留编辑 + 预览，右栏进 Sheet；手机左右栏都进 Sheet。
+  const [leftOpen, setLeftOpen] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+  const [mobile, setMobile] = useState(() => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches);
+  const [rightDrawer, setRightDrawer] = useState(() => typeof window !== "undefined" && window.matchMedia(RIGHT_DRAWER_QUERY).matches);
   const [rightView, setRightView] = useState<RightView>("diagnose");
-  const [showIncomplete, setShowIncomplete] = useState(false);
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [preflightAction, setPreflightAction] = useState<PreflightAction | null>(null);
+  const preflightResolve = useRef<((proceed: boolean) => void) | null>(null);
+
+  useEffect(() => {
+    const mobileMedia = window.matchMedia(MOBILE_QUERY);
+    const drawerMedia = window.matchMedia(RIGHT_DRAWER_QUERY);
+    const update = () => {
+      setMobile(mobileMedia.matches);
+      setRightDrawer(drawerMedia.matches);
+      if (!mobileMedia.matches) setLeftOpen(false);
+      if (!drawerMedia.matches) setRightOpen(false);
+    };
+    update();
+    mobileMedia.addEventListener("change", update);
+    drawerMedia.addEventListener("change", update);
+    return () => {
+      mobileMedia.removeEventListener("change", update);
+      drawerMedia.removeEventListener("change", update);
+    };
+  }, []);
+  const openLeft = () => {
+    if (mobile) setLeftOpen(true);
+  };
+  const setMode = (nextMode: Mode) => {
+    if (nextMode === mode) return;
+    setSp({ mode: nextMode }, { replace: true });
+    if (nextMode === "diagnose") setRightView("diagnose");
+  };
 
   const issues = validateResumeForm(resume);
-  // 诊断/下载前完整性检查（不阻断，仅提示 §4.3）：有缺项则亮黄条
-  const flagIncomplete = () => { if (validateResumeForm(useStore.getState().resume).length) setShowIncomplete(true); };
-  // 点缺项 → 展开左栏 + 滚动到对应分节（固定节 sec-*，扩展模块 mod-*）
-  const scrollToSection = (key: string) => {
-    setLeftOpen(true);
-    setTimeout(() => {
-      const el = document.getElementById(`sec-${key}`) || document.getElementById(`mod-${key}`)
-        || document.querySelector('[id^="mod-custom-"]');
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
+  const finishPreflight = (proceed = false) => {
+    const resolve = preflightResolve.current;
+    preflightResolve.current = null;
+    setPreflightAction(null);
+    setCheckOpen(false);
+    resolve?.(proceed);
   };
-  const download = () => { flagIncomplete(); printRef.current(); };
+  const requestPreflight = (action: PreflightAction): Promise<boolean> => {
+    if (!validateResumeForm(useStore.getState().resume).length) return Promise.resolve(true);
+    preflightResolve.current?.(false);
+    return new Promise((resolve) => {
+      preflightResolve.current = resolve;
+      setPreflightAction(action);
+      setCheckOpen(true);
+    });
+  };
+  // 点问题 → 切回编辑模式、展开对应分节、展示字段错误并聚焦到具体控件。
+  const focusIssue = (issue: FormIssue) => {
+    finishPreflight(false);
+    setRightOpen(false);
+    if (mode !== "diagnose") setMode("diagnose");
+    openLeft();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let attempts = 0;
+    const locate = () => {
+      attempts += 1;
+      const field = Array.from(document.querySelectorAll<HTMLElement>("[data-field-path]"))
+        .find((el) => el.dataset.fieldPath === issue.path);
+      if (field) {
+        window.dispatchEvent(new CustomEvent("resume:focus-issue", { detail: { path: issue.path } }));
+        field.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "center" });
+        requestAnimationFrame(() => {
+          field.querySelector<HTMLElement>("input, textarea, button, [tabindex]:not([tabindex='-1'])")
+            ?.focus({ preventScroll: true });
+        });
+        return;
+      }
+      const section = document.getElementById(`sec-${issue.sectionKey}`)
+        || document.getElementById(`mod-${issue.sectionKey}`)
+        || document.querySelector<HTMLElement>('[id^="mod-custom-"]');
+      const toggle = section?.querySelector<HTMLButtonElement>('button[aria-expanded="false"]');
+      toggle?.click();
+      if (attempts < 16) requestAnimationFrame(locate);
+      else section?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    };
+    requestAnimationFrame(locate);
+  };
+  const download = async () => {
+    if (await requestPreflight("export")) printRef.current();
+  };
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const [importOpen, setImportOpen] = useState(false);
   const [histOpen, setHistOpen] = useState(false);
@@ -185,6 +278,18 @@ export function EditorPage() {
   };
   const undoRef = useRef(undo); undoRef.current = undo;
   const redoRef = useRef(redo); redoRef.current = redo;
+  const canUndo = snapTimer.current !== null || undoStack.current.length > 0;
+  const canRedo = redoStack.current.length > 0;
+
+  const manualSave = async () => {
+    const current = useStore.getState();
+    if (current.conflict) { toast.error("请先处理版本冲突"); return; }
+    if (!current.dirty) { toast.message("所有修改均已保存"); return; }
+    const ok = await saveNow();
+    if (ok) toast.success("已保存");
+    else if (!useStore.getState().conflict) toast.error("保存未成功，请检查网络后重试");
+  };
+  const manualSaveRef = useRef(manualSave); manualSaveRef.current = manualSave;
 
   // ---- 守卫 ----
   useEffect(() => {
@@ -228,20 +333,27 @@ export function EditorPage() {
     if (ok) toast.success("已用你的版本覆盖"); else toast.error("覆盖保存失败，请重试");
   };
 
-  // ---- 键盘撤销/重做（顶栏图标位让给 版本记录/诊断记录，undo/redo 走 ⌘Z / ⇧⌘Z）----
+  // ---- 键盘：保存、文档级撤销/重做；输入框内仍交给浏览器做文本级撤销 ----
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === "s") {
+        e.preventDefault();
+        if (!e.repeat) void manualSaveRef.current();
+        return;
+      }
       const t = e.target as HTMLElement;
-      // 表单控件内不接管：让浏览器做输入框自身的文本撤销，避免双重回退
-      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      const editing = t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable;
+      if (editing) return;
+      if (key !== "z" && key !== "y") return;
       e.preventDefault();
-      if (e.shiftKey) redoRef.current(); else undoRef.current();
+      if (key === "y" || e.shiftKey) redoRef.current(); else undoRef.current();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, []);
-
   // ---- 诊断报告记录（只读历史快照；不做任何跨报告对比/涨分展示）----
   const openReports = async () => {
     setReportsOpen(true); setReports(null); setReportView(null);
@@ -280,75 +392,200 @@ export function EditorPage() {
 
   if (resumeId !== id) return <div className="px-6 py-8 text-copy-14 text-muted-foreground">加载中…</div>;
 
-  const status = conflict ? "冲突" : saving ? "保存中…" : dirty ? "未保存" : "已自动保存";
+  const shortcutKey = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl+";
+  const status = conflict ? "冲突"
+    : saving ? "保存中…"
+      : retrying ? "等待重试"
+        : saveError ? "保存失败"
+          : dirty ? "未保存" : "已自动保存";
+
+  const modeTabs = (
+    <Tabs value={mode} onValueChange={(value) => setMode(value as Mode)} className="w-full md:w-auto">
+      <TabsList className="!h-8 !min-h-8 w-full gap-1 !rounded-header border border-editor-switch-border bg-editor-switch p-0.5 md:w-auto">
+        <TabsTrigger value="diagnose"
+          className="!h-7 !min-h-7 flex-1 !rounded-header px-4 py-1.5 !text-button-12 data-[state=active]:border data-[state=active]:border-background data-[state=active]:shadow-none md:flex-none">
+          编辑
+        </TabsTrigger>
+        <TabsTrigger value="layout"
+          className="!h-7 !min-h-7 flex-1 !rounded-header px-4 py-1.5 !text-button-12 data-[state=active]:border data-[state=active]:border-background data-[state=active]:shadow-none md:flex-none">
+          排版
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+
+  const leftTitle = mode === "layout" ? "排版" : "简历内容";
+
+  const leftPanel = (
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      <PanelBar title={leftTitle} reserveClose={mobile} />
+      {mode === "layout"
+        ? <PageLayoutPanel />
+        : <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto"><SectionEditor /></div>}
+    </div>
+  );
+
+  const rightPanel = (
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
+      {mode === "layout" ? (
+        <PanelBar title="页面样式" reserveClose={rightDrawer} />
+      ) : (
+        <div className={cn("flex h-11 shrink-0 items-center border-b border-border pl-2",
+          rightDrawer ? "pr-14" : "pr-2")}>
+          <Tabs value={rightView} onValueChange={(value) => setRightView(value as RightView)} className="min-w-0 flex-1">
+            <TabsList className="w-full bg-muted">
+              <TabsTrigger value="diagnose" className="flex-1 gap-2">
+                <FileText className="h-4 w-4" />AI 诊断
+              </TabsTrigger>
+              <TabsTrigger value="polish" className="flex-1 gap-2">
+                <Sparkles className="h-4 w-4" />AI 润色
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+      {mode === "layout"
+        ? <StylePanel device={device} setDevice={setDevice} onExport={download} />
+        : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel onBeforeRun={() => requestPreflight("diagnose")} />}
+    </div>
+  );
 
   return (
-    <div className="anim-in flex h-screen flex-col bg-background">
-      {/* ===== 全局顶栏 52px ===== */}
-      <header className="relative flex h-[52px] shrink-0 items-center border-b border-border px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <button aria-label="返回列表" onClick={() => nav("/")}
-            className="flex h-6 w-6 shrink-0 items-center justify-center text-foreground">
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <input aria-label="简历名称" value={title} onChange={(e) => setTitle(e.target.value)}
-            placeholder="未命名简历"
-            className="w-[160px] truncate rounded bg-transparent text-heading-16 text-foreground focus:outline-none focus:ring-1 focus:ring-border" />
-          <span className={cn("flex shrink-0 items-center gap-1 text-label-12",
-            conflict ? "text-destructive" : "text-muted-foreground")}>
-            {!dirty && !saving && !conflict && <Check className="h-3 w-3" />}
-            {status} · v{version}
-          </span>
-        </div>
+    <TooltipProvider delayDuration={300}>
+      <div className="anim-in flex h-dvh flex-col bg-background">
+        <header className="shrink-0 border-b border-editor-header-border bg-background md:h-app-header">
+          <div className="relative flex h-app-header items-center md:h-full">
+            <div className="flex min-w-0 flex-1 items-center gap-2 px-4">
+              <Button type="button" variant="ghost" aria-label="返回简历列表" onClick={() => nav("/")}
+                className="relative !h-8 !min-h-8 w-4 shrink-0 !rounded-header p-0 text-editor-title after:absolute after:-inset-x-2 after:-inset-y-1.5 active:scale-100">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <span className="flex min-w-0 flex-1 items-center lg:flex-none">
+                <Input aria-label="简历名称" value={title} size={Math.min(24, Math.max(5, (title || "未命名简历").length + 2))}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="未命名简历" autoComplete="off" spellCheck={false}
+                  className="!h-8 !min-h-8 !w-auto min-w-0 max-w-xs truncate border-0 bg-transparent px-0 py-0 !text-heading-16 !text-editor-title shadow-none focus-visible:ring-0 focus-visible:ring-offset-0" />
+              </span>
+              <span role="status" aria-live="polite" title={saveError ?? undefined}
+                className={cn("hidden whitespace-nowrap text-label-12 text-editor-muted sm:block",
+                  (conflict || saveError) && "text-destructive")}>
+                {status}
+              </span>
+            </div>
 
-        {/* 诊断/排版 分段（绝对居中） */}
-        <div className="absolute left-1/2 top-1/2 flex h-8 w-[120px] -translate-x-1/2 -translate-y-1/2 items-center rounded-[8px] bg-muted p-[2px]">
-          {([["diagnose", "诊断"], ["layout", "排版"]] as const).map(([m, lbl]) => (
-            <button key={m} aria-pressed={mode === m} onClick={() => setMode(m)}
-              className={cn("h-7 w-14 rounded-[6px] text-label-12",
-                mode === m ? "bg-background text-foreground shadow-card" : "text-muted-foreground")}>
-              {lbl}
-            </button>
-          ))}
-        </div>
+            <div className="pointer-events-none absolute inset-x-0 hidden h-full items-center justify-center md:flex">
+              <div className="pointer-events-auto">{modeTabs}</div>
+            </div>
 
-        <div className="ml-auto flex items-center">
-          {/* 面板开关 */}
-          <div className="flex items-center gap-1 px-1.5">
-            <IconBtn label={leftOpen ? "收起左栏" : "展开左栏"} onClick={() => setLeftOpen(!leftOpen)}>
-              <PanelLeft className={cn("h-4 w-4", !leftOpen && "opacity-50")} />
-            </IconBtn>
-            <IconBtn label="双栏全开" onClick={() => { setLeftOpen(true); setRightOpen(true); }}>
-              <Columns2 className="h-4 w-4" />
-            </IconBtn>
-            <IconBtn label={rightOpen ? "收起右栏" : "展开右栏"} onClick={() => setRightOpen(!rightOpen)}>
-              <PanelRight className={cn("h-4 w-4", !rightOpen && "opacity-50")} />
-            </IconBtn>
+            <div className="ml-auto flex shrink-0 items-center justify-end gap-2 px-4">
+              {mobile && (
+                <IconBtn label={mode === "layout" ? "打开排版设置" : "打开简历编辑"} onClick={() => setLeftOpen(true)}>
+                  <PanelLeftOpen className="h-4 w-4" />
+                </IconBtn>
+              )}
+              {rightDrawer && (
+                <IconBtn label={mode !== "diagnose" ? "打开页面样式" : "打开 AI 助手"} onClick={() => setRightOpen(true)}>
+                  <PanelRightOpen className="h-4 w-4" />
+                </IconBtn>
+              )}
+
+              {issues.length > 0 && (
+                <Popover open={checkOpen} onOpenChange={(open) => {
+                  if (open) { setPreflightAction(null); setCheckOpen(true); }
+                  else finishPreflight(false);
+                }}>
+                  <PopoverTrigger asChild>
+                    <Button type="button" variant="ghost" aria-label={`待完善 ${issues.length} 项`}
+                      className="relative !h-8 !min-h-8 gap-1 !rounded-header px-0 text-amber-700 after:absolute after:-inset-y-1.5 hover:text-amber-800 active:scale-100 dark:text-amber-400 dark:hover:text-amber-300">
+                      <TriangleAlert className="h-4 w-4" aria-hidden />
+                      <span className="hidden text-copy-14 sm:inline">待完善{issues.length}</span>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" sideOffset={8}
+                    className="w-[min(22rem,calc(100vw-2rem))] overflow-hidden">
+                    <div className="px-4 pb-3 pt-4">
+                      <div className="flex items-start gap-2.5">
+                        <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
+                        <div>
+                          <h2 className="text-heading-14 text-foreground">
+                            {preflightAction === "export"
+                              ? `导出前还有 ${issues.length} 项待完善`
+                              : preflightAction === "diagnose"
+                                ? `诊断前还有 ${issues.length} 项待完善`
+                                : `简历还有 ${issues.length} 项待完善`}
+                          </h2>
+                          <p className="mt-1 text-copy-13 text-muted-foreground">
+                            {preflightAction === "export"
+                              ? "继续导出可能出现空内容。"
+                              : preflightAction === "diagnose"
+                                ? "缺失内容可能影响诊断结果的准确性。"
+                                : "补全后，诊断和导出结果会更完整。"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto border-y border-border px-2 py-1">
+                      {issues.slice(0, 8).map((issue) => (
+                        <Button key={issue.path} type="button" variant="ghost" onClick={() => focusIssue(issue)}
+                          className="h-auto min-h-11 w-full justify-start gap-2 rounded-sm px-2 py-2 text-left active:scale-100">
+                          <span className="min-w-0 flex-1 text-copy-13 text-foreground">{issue.msg}</span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                        </Button>
+                      ))}
+                      {issues.length > 8 && (
+                        <p className="px-2 py-2 text-label-12 text-muted-foreground">另有 {issues.length - 8} 项待完善</p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 p-3">
+                      {preflightAction && (
+                        <Button type="button" variant="secondary" onClick={() => finishPreflight(true)} className="flex-1">
+                          仍然{preflightAction === "export" ? "导出" : "诊断"}
+                        </Button>
+                      )}
+                      <Button type="button" onClick={() => focusIssue(issues[0])} className="flex-1">
+                        去填写
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              <ThemeToggle className="relative after:absolute after:-inset-y-1.5" />
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button type="button" variant="ghost" className="relative !h-8 !min-h-8 w-8 shrink-0 !rounded-header px-0 after:absolute after:-inset-y-1.5 active:scale-100" aria-label="更多操作">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setImportOpen(true)}><Upload />导入简历</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={download}><Download />下载简历</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openHistory}><History />历史版本</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={openReports}><FileClock />诊断记录</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={!canUndo} onSelect={undo}>
+                    <Undo2 />撤销<DropdownMenuShortcut>{shortcutKey}Z</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canRedo} onSelect={redo}>
+                    <Redo2 />重做<DropdownMenuShortcut>⇧{shortcutKey}Z</DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button type="button" variant="secondary"
+                className="hidden !h-8 !min-h-8 shrink-0 !gap-1 !rounded-header border-gray-100 pl-2.5 pr-3 text-copy-14 active:scale-100 lg:inline-flex"
+                aria-label="下载简历" onClick={download}>
+                <Download className="h-4 w-4" /><span>下载</span>
+              </Button>
+              <Button type="button" className="hidden !h-8 !min-h-8 shrink-0 !gap-1 !rounded-header pl-2.5 pr-3 text-copy-14 active:scale-100 lg:inline-flex"
+                aria-label="导入简历" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /><span>导入</span>
+              </Button>
+            </div>
           </div>
-          <div className="ml-[14px] flex items-center gap-2">
-            <button aria-label="版本记录" title="版本记录（内容变更自动快照，可回滚）" onClick={openHistory}
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground">
-              <History className="h-4 w-4" />
-            </button>
-            <button aria-label="诊断报告记录" title="诊断报告记录（历次诊断的只读快照）" onClick={openReports}
-              className="flex h-8 w-8 items-center justify-center rounded-[8px] text-muted-foreground hover:text-foreground">
-              <FileClock className="h-4 w-4" />
-            </button>
-            <button onClick={() => setImportOpen(true)}
-              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-copy-14 text-foreground hover:bg-accent/40">
-              <Upload className="h-4 w-4" /><span className="pl-1">导入</span>
-            </button>
-            <button onClick={download}
-              className="flex h-8 w-[70px] items-center rounded-[8px] border border-border pl-2.5 text-copy-14 text-foreground hover:bg-accent/40">
-              <Download className="h-4 w-4" /><span className="pl-1">下载</span>
-            </button>
-            <button disabled={saving || !dirty || conflict} onClick={() => void saveNow()}
-              className="flex h-8 w-[70px] items-center rounded-[8px] bg-primary pl-2.5 text-copy-14 text-primary-foreground disabled:opacity-50">
-              <Save className="h-4 w-4" /><span className="pl-1">保存</span>
-            </button>
-          </div>
-        </div>
-      </header>
+          <div className="border-t border-editor-header-border px-4 py-2 md:hidden">{modeTabs}</div>
+        </header>
 
       {conflict && (
         <Alert tone="red" className="mx-4 mt-3 shrink-0">
@@ -360,94 +597,93 @@ export function EditorPage() {
         </Alert>
       )}
 
-      {showIncomplete && issues.length > 0 && (
-        <Alert tone="amber" className="mx-4 mt-3 shrink-0">
-          <div className="flex items-start">
-            <div className="flex-1">
-              <b>简历还有 {issues.length} 处必填未完整</b>（不影响保存，建议补全后再诊断/导出）：
-              <ul className="mt-1 space-y-0.5">
-                {issues.slice(0, 8).map((it, i) => (
-                  <li key={i}>
-                    <button onClick={() => scrollToSection(it.sectionKey)}
-                      className="text-left underline underline-offset-2 hover:opacity-70">{it.msg}</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <button aria-label="关闭提示" onClick={() => setShowIncomplete(false)}
-              className="ml-2 shrink-0 text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
-          </div>
+      {saveError && !retrying && !conflict && (
+        <Alert tone="red" className="mx-4 mt-3 flex shrink-0 items-center gap-3" role="alert">
+          <div className="flex-1"><b>自动保存失败。</b>{saveError}</div>
+          <Button variant="secondary" disabled={saving} onClick={() => void manualSave()}>
+            <RefreshCw className={cn("h-4 w-4", saving && "animate-spin")} />立即重试
+          </Button>
         </Alert>
       )}
 
-      {/* ===== 三栏 ===== */}
-      <div className="flex min-h-0 flex-1">
-        {leftOpen && (
-          // 左栏 440px：条目卡「时间」行（标签 80 + 年月×2 全显「YYYY年MM月」+ 至今勾选）的最小整宽，见 v3 §四.4
-          <aside className="flex w-[440px] shrink-0 flex-col border-r border-border bg-background">
-            <PanelBar title={mode === "layout" ? "模板" : "编辑简历"}>
-              <IconBtn label="收起" onClick={() => setLeftOpen(false)}><X className="h-4 w-4" /></IconBtn>
-            </PanelBar>
-            {mode === "layout"
-              ? <TemplatesPanel />
-              : <div key={hydrationKey} className="min-h-0 flex-1 overflow-y-auto"><SectionEditor /></div>}
-          </aside>
+        {/* ===== 编辑 / 预览 / AI（或样式）：宽屏三栏可拖拽，中屏左栏+预览可拖拽，手机纯预览 ===== */}
+        <div className="flex min-h-0 flex-1 isolate">
+          {mobile ? (
+            <PreviewCanvas device={device} showPolish={mode === "diagnose"}
+              onImport={() => setImportOpen(true)} printApi={printApi} />
+          ) : (
+            <ResizablePanelGroup direction="horizontal" key={rightDrawer ? "2col" : "3col"}
+              autoSaveId={rightDrawer ? "on-merit-editor-2col" : "on-merit-editor-3col"}
+              className="min-h-0 flex-1">
+              <ResizablePanel defaultSize={rightDrawer ? 32 : 28} minSize={22} maxSize={42}>
+                <aside aria-label={mode === "layout" ? "排版面板" : "简历编辑面板"}
+                  className="flex h-full min-h-0 w-full flex-col bg-background">
+                  {leftPanel}
+                </aside>
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel minSize={30}>
+                <div className="flex h-full min-h-0 w-full flex-col">
+                  <PreviewCanvas device={device} showPolish={mode === "diagnose"}
+                    onImport={() => setImportOpen(true)} printApi={printApi} />
+                </div>
+              </ResizablePanel>
+              {!rightDrawer && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize={25} minSize={18} maxSize={36}>
+                    <aside aria-label={mode === "layout" ? "样式面板" : "AI 助手面板"}
+                      className="flex h-full min-h-0 w-full flex-col bg-background">
+                      {rightPanel}
+                    </aside>
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          )}
+        </div>
+
+        {mobile && (
+          <Sheet open={leftOpen} onOpenChange={setLeftOpen}>
+            <SheetContent side="left" className="flex flex-col gap-0 p-0">
+              <SheetHeader className="sr-only">
+                <SheetTitle>{leftTitle}</SheetTitle>
+                <SheetDescription>
+                  {mode === "layout" ? "选择模板并调整页面布局与模块顺序" : "编辑简历内容"}
+                </SheetDescription>
+              </SheetHeader>
+              {leftPanel}
+            </SheetContent>
+          </Sheet>
         )}
 
-        <PreviewCanvas device={device} showPolish={mode === "diagnose"}
-          onImport={() => setImportOpen(true)} printApi={printApi} />
-
-        {rightOpen && (
-          <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-background">
-            {mode === "layout" ? (
-              <PanelBar title="样式">
-                <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
-              </PanelBar>
-            ) : (
-              /* 诊断模式：标题栏内嵌「诊断 / AI 润色」双 tab（Figma 843:268）——并置互切，取代旧的整栏切换+返回 */
-              <div className="flex h-11 shrink-0 items-center border-b border-border pl-6 pr-4">
-                <div className="flex items-center gap-2">
-                  {([["diagnose", "诊断", FileText], ["polish", "AI 润色", Sparkles]] as const).map(([v, lbl, Icon]) => (
-                    <button key={v} aria-pressed={rightView === v} onClick={() => setRightView(v)}
-                      className={cn("flex h-8 items-center gap-1 rounded-[8px] pl-2 pr-2 text-copy-14",
-                        rightView === v
-                          ? "border border-border bg-background text-foreground shadow-card"
-                          : "text-foreground hover:bg-accent/40")}>
-                      <Icon className={cn("h-4 w-4", v === "polish" && "text-indigo-500")} />
-                      {lbl}
-                    </button>
-                  ))}
-                </div>
-                <div className="ml-auto flex items-center gap-1">
-                  <IconBtn label="诊断报告记录" onClick={openReports}><FileClock className="h-4 w-4" /></IconBtn>
-                  <IconBtn label="收起" onClick={() => setRightOpen(false)}><X className="h-4 w-4" /></IconBtn>
-                </div>
-              </div>
-            )}
-            {mode === "layout"
-              ? <StylePanel device={device} setDevice={setDevice} onExport={download} />
-              : rightView === "polish" ? <PolishPanel /> : <DiagnosePanel onBeforeRun={flagIncomplete} />}
-          </aside>
+        {rightDrawer && (
+          <Sheet open={rightOpen} onOpenChange={setRightOpen}>
+            <SheetContent side="right" className="flex flex-col gap-0 p-0">
+              <SheetHeader className="sr-only">
+                <SheetTitle>{mode === "layout" ? "页面样式" : "AI 助手"}</SheetTitle>
+                <SheetDescription>{mode === "layout" ? "调整简历页面样式" : "诊断与润色简历内容"}</SheetDescription>
+              </SheetHeader>
+              {rightPanel}
+            </SheetContent>
+          </Sheet>
         )}
-      </div>
 
-      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+        <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
-      {reportsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setReportsOpen(false); }}>
-          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-background p-5 shadow-lg">
-            <div className="mb-3 flex items-center justify-between">
+        <Dialog open={reportsOpen} onOpenChange={setReportsOpen}>
+          <DialogContent className="flex max-h-dialog max-w-lg flex-col">
+            <DialogHeader className="pr-10">
               <div className="flex items-center gap-1">
                 {reportView && (
-                  <Button variant="ghost" aria-label="返回报告列表" onClick={() => setReportView(null)}>
+                  <Button variant="ghost" className="w-11 px-0" aria-label="返回报告列表" onClick={() => setReportView(null)}>
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
                 )}
-                <h3 className="text-heading-20">{reportView ? "诊断报告" : "诊断报告记录"}</h3>
+                <DialogTitle>{reportView ? "诊断报告" : "诊断报告记录"}</DialogTitle>
               </div>
-              <Button variant="ghost" aria-label="关闭" onClick={() => setReportsOpen(false)}><X className="h-4 w-4" /></Button>
-            </div>
+              <DialogDescription>报告基于生成当时的简历内容，仅用于回顾。</DialogDescription>
+            </DialogHeader>
 
             {!reportView && (
               <>
@@ -457,8 +693,8 @@ export function EditorPage() {
                 )}
                 <div className="min-h-0 overflow-y-auto">
                   {reports?.map((r) => (
-                    <button key={r.id} onClick={() => openReport(r.id)}
-                      className="flex w-full items-center gap-3 border-b border-border py-2.5 text-left hover:bg-accent/30">
+                    <Button key={r.id} variant="ghost" onClick={() => openReport(r.id)}
+                      className="h-auto w-full justify-start rounded-none border-b border-border px-0 py-3 text-left active:scale-100">
                       <div className="flex-1">
                         <div className="text-copy-14">
                           {r.role_label} · {r.score}/{r.max_score}
@@ -467,7 +703,7 @@ export function EditorPage() {
                         <div className="text-label-12 text-muted-foreground">{new Date(r.created_at).toLocaleString()}</div>
                       </div>
                       <span className="text-label-12 text-muted-foreground">查看</span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 {(reports?.length ?? 0) > 0 && (
@@ -493,21 +729,18 @@ export function EditorPage() {
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        </Dialog>
 
-      {histOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setHistOpen(false); }}>
-          <div className="w-full max-w-lg rounded-xl border border-border bg-background p-5 shadow-lg">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-heading-20">历史版本</h3>
-              <Button variant="ghost" aria-label="关闭" onClick={() => setHistOpen(false)}><X className="h-4 w-4" /></Button>
-            </div>
+        <Dialog open={histOpen} onOpenChange={setHistOpen}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader className="pr-10">
+              <DialogTitle>历史版本</DialogTitle>
+              <DialogDescription>内容变更时会自动创建快照，可回滚到任一历史版本。</DialogDescription>
+            </DialogHeader>
             {revisions === null && <p className="text-copy-14 text-muted-foreground">加载中…</p>}
             {revisions?.length === 0 && <p className="text-copy-14 text-muted-foreground">还没有历史版本（内容变更时自动快照）。</p>}
-            <div className="max-h-[50vh] overflow-y-auto">
+            <div className="max-h-dialog-list overflow-y-auto">
               {revisions?.map((r) => (
                 <div key={r.id} className="flex items-center gap-3 border-b border-border py-2.5">
                   <div className="flex-1">
@@ -518,9 +751,9 @@ export function EditorPage() {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   );
 }

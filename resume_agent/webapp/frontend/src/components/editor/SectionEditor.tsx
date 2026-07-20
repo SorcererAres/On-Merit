@@ -11,6 +11,8 @@ import {
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { ExtraModules } from "./ExtraModules";
 import { Alert } from "@/components/ui/misc";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MonthPicker } from "@/components/ui/month-picker";
 import { ImageUp } from "lucide-react";
 import { toast } from "sonner";
@@ -57,18 +59,18 @@ function PhotoUpload({ value, onChange }: { value?: string; onChange: (v: string
     catch { toast.error("图片处理失败，请换一张"); }
   };
   return (
-    <div className="flex items-center rounded-[8px] border border-border px-3 py-2">
+    <div className="flex items-center rounded-md border border-border px-3 py-2">
       <span className="w-20 shrink-0 text-copy-14 text-muted-foreground">头像</span>
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {value
           ? <img src={value} alt="头像预览" className="h-12 w-12 rounded-md object-cover" />
           : <div className="flex h-12 w-12 items-center justify-center rounded-md bg-muted text-muted-foreground"><ImageUp className="h-5 w-5" /></div>}
-        <button type="button" onClick={() => ref.current?.click()}
-          className="text-copy-13 text-foreground underline-offset-2 hover:underline">{value ? "更换" : "上传"}</button>
-        {value && <button type="button" onClick={() => onChange("")}
-          className="text-copy-13 text-muted-foreground hover:text-destructive">移除</button>}
+        <Button type="button" variant="ghost" onClick={() => ref.current?.click()}
+          className="px-2 text-copy-13">{value ? "更换" : "上传"}</Button>
+        {value && <Button type="button" variant="ghost" onClick={() => onChange("")}
+          className="px-2 text-copy-13 text-muted-foreground hover:text-destructive">移除</Button>}
       </div>
-      <input ref={ref} type="file" accept="image/*" aria-label="上传头像" onChange={pick} className="hidden" />
+      <Input ref={ref} type="file" accept="image/*" aria-label="上传头像" onChange={pick} className="hidden" />
     </div>
   );
 }
@@ -99,6 +101,14 @@ export function SectionEditor() {
 
   const bump = () => setD({ ...d });
   const touch = (path: string) => setTouched((s) => new Set(s).add(path));
+  useEffect(() => {
+    const revealIssue = (event: Event) => {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
+      if (path) touch(path);
+    };
+    window.addEventListener("resume:focus-issue", revealIssue);
+    return () => window.removeEventListener("resume:focus-issue", revealIssue);
+  }, []);
   const issues = validateResumeForm(d);
   const errOf = (path: string) => (touched.has(path) ? issues.find((i) => i.path === path)?.msg : undefined);
 
@@ -129,7 +139,7 @@ export function SectionEditor() {
       {/* 基础信息 */}
       <AccordionSection title="基础信息" id="sec-basics">
         <PhotoUpload value={b.photo} onChange={(v) => { if (v) b.photo = v; else delete b.photo; bump(); }} />
-        <Field label="姓名" required error={errOf("basics.name")}>
+        <Field label="姓名" required path="basics.name" error={errOf("basics.name")}>
           <BareInput aria-label="姓名" value={b.name ?? ""} placeholder="请输入姓名"
             onBlur={() => touch("basics.name")}
             onChange={(e) => { b.name = e.target.value; bump(); }} />
@@ -148,7 +158,7 @@ export function SectionEditor() {
             onChange={(v) => { b.birthMonth = v; bump(); }} />
         </Field>
         <div onBlur={() => touch("basics.contact")}>
-          <Field label="电话" error={errOf("basics.contact")}>
+          <Field label="电话" path="basics.contact" error={errOf("basics.contact")}>
             <BareInput aria-label="电话" value={b.phone ?? ""} placeholder="请填写电话"
               onChange={(e) => { b.phone = e.target.value; bump(); }} />
           </Field>
@@ -176,7 +186,7 @@ export function SectionEditor() {
           const e = e0 as Education & { id: string };
           return (
             <ItemCard key={e.id} title={e.institution || "未填学校"} onDelete={() => delItem("education", i)}>
-              <Field label="学校" required error={errOf(`education[${i}].institution`)}>
+              <Field label="学校" required path={`education[${i}].institution`} error={errOf(`education[${i}].institution`)}>
                 <BareInput aria-label={`教育 ${i + 1} 学校`} value={e.institution ?? ""} placeholder="请输入毕业院校"
                   onBlur={() => touch(`education[${i}].institution`)}
                   onChange={(ev) => { e.institution = ev.target.value; bump(); }} />
@@ -206,7 +216,7 @@ export function SectionEditor() {
                 <BareInput aria-label={`教育 ${i + 1} 专业`} value={e.area ?? ""} placeholder="请输入专业名称"
                   onChange={(ev) => { e.area = ev.target.value; bump(); }} />
               </Field>
-              <MonthRange label="时间" start={e.startDate} end={e.endDate} error={errOf(`education[${i}].endDate`)}
+              <MonthRange label="时间" start={e.startDate} end={e.endDate} path={`education[${i}].endDate`} error={errOf(`education[${i}].endDate`)}
                 onStart={(v) => { e.startDate = v; bump(); }} onEnd={(v) => { e.endDate = v; bump(); }} />
               <RichTextarea value={e.description} polishKind="edu"
                 genContext={[e.institution, e.studyType, e.area].filter(Boolean).join(" · ")}
@@ -225,12 +235,12 @@ export function SectionEditor() {
           const w = w0 as Work & { id: string };
           return (
             <ItemCard key={w.id} title={w.name || "未填公司"} onDelete={() => delItem("work", i)}>
-              <Field label="公司名称" required error={errOf(`work[${i}].name`)}>
+              <Field label="公司名称" required path={`work[${i}].name`} error={errOf(`work[${i}].name`)}>
                 <BareInput aria-label={`工作 ${i + 1} 公司`} value={w.name ?? ""} placeholder="请输入公司名称"
                   onBlur={() => touch(`work[${i}].name`)}
                   onChange={(ev) => { w.name = ev.target.value; bump(); }} />
               </Field>
-              <MonthRange label="工作时间" start={w.startDate} end={w.endDate} error={errOf(`work[${i}].endDate`)}
+              <MonthRange label="工作时间" start={w.startDate} end={w.endDate} path={`work[${i}].endDate`} error={errOf(`work[${i}].endDate`)}
                 onStart={(v) => { w.startDate = v; bump(); }} onEnd={(v) => { w.endDate = v; bump(); }} />
               <Field label="岗位名称">
                 <BareInput aria-label={`工作 ${i + 1} 岗位`} value={w.position ?? ""} placeholder="请输入岗位名称"
@@ -253,7 +263,7 @@ export function SectionEditor() {
           const p = p0 as Project & { id: string };
           return (
             <ItemCard key={p.id} title={p.name || "未填项目"} onDelete={() => delItem("projects", i)}>
-              <Field label="项目名称" required error={errOf(`projects[${i}].name`)}>
+              <Field label="项目名称" required path={`projects[${i}].name`} error={errOf(`projects[${i}].name`)}>
                 <BareInput aria-label={`项目 ${i + 1} 名称`} value={p.name ?? ""} placeholder="请输入项目名称"
                   onBlur={() => touch(`projects[${i}].name`)}
                   onChange={(ev) => { p.name = ev.target.value; bump(); }} />
@@ -262,7 +272,7 @@ export function SectionEditor() {
                 <BareInput aria-label={`项目 ${i + 1} 角色`} value={p.role ?? ""} placeholder="请输入担任角色"
                   onChange={(ev) => { p.role = ev.target.value; bump(); }} />
               </Field>
-              <MonthRange label="项目时间" start={p.startDate} end={p.endDate} error={errOf(`projects[${i}].endDate`)}
+              <MonthRange label="项目时间" start={p.startDate} end={p.endDate} path={`projects[${i}].endDate`} error={errOf(`projects[${i}].endDate`)}
                 onStart={(v) => { p.startDate = v; bump(); }} onEnd={(v) => { p.endDate = v; bump(); }} />
               <RichTextarea value={p.description} polishKind="project"
                 genContext={[p.name, p.role].filter(Boolean).join(" · ")}

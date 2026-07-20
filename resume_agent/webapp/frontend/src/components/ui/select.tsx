@@ -22,7 +22,7 @@ const SelectTrigger = React.forwardRef<
       "flex w-full items-center justify-between gap-2 text-copy-14 text-foreground [&>span]:min-w-0 [&>span]:truncate disabled:cursor-not-allowed disabled:opacity-50",
       bare
         ? "bg-transparent py-2 focus:outline-none"
-        : "min-h-[40px] rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        : "min-h-11 rounded-md border border-input bg-background px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       className,
     )}
     {...props}
@@ -45,7 +45,7 @@ const SelectContent = React.forwardRef<
       position={position}
       sideOffset={sideOffset}
       className={cn(
-        "z-50 max-h-[280px] min-w-[var(--radix-select-trigger-width)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-popover",
+        "z-50 max-h-select min-w-select-trigger overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-popover",
         className,
       )}
       {...props}

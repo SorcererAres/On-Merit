@@ -3,7 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="white" />
 <title>实至 · On Merit</title>
+<script>
+  (() => {
+    const saved = localStorage.getItem("on-merit-theme");
+    const dark = saved === "dark" || (!saved && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.classList.toggle("dark", dark);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", dark ? "black" : "white");
+  })();
+</script>
 </head>
 <body>
 <div id="root"></div>

@@ -74,10 +74,9 @@ export function PolishPanel() {
         改写按「仅重述已有事实」规则生成，<b>请逐条核实</b>；改动默认不勾选。
       </p>
 
-      <button disabled={gen.loading || !resume} onClick={runGen}
-        className="mt-3 h-9 w-full rounded-[8px] bg-primary text-copy-14 text-primary-foreground disabled:opacity-50">
+      <Button disabled={gen.loading || !resume} onClick={runGen} className="mt-3 w-full">
         {improve ? "重新生成建议" : "生成修改建议"}
-      </button>
+      </Button>
       <TaskStatus loading={gen.loading} elapsed={gen.elapsed} stop={gen.stop} error={gen.error} />
 
       {!improve && !gen.loading && (
@@ -94,7 +93,7 @@ export function PolishPanel() {
               <label className="flex items-center gap-2 text-label-13">
                 <Checkbox aria-label="全选"
                   checked={chosen === changes.length && changes.length > 0}
-                  onChange={(e) => setAccepted(e.target.checked
+                  onCheckedChange={(checked) => setAccepted(checked === true
                     ? Object.fromEntries(changes.map((_, i) => [i, true])) : {})} />
                 全选
               </label>
@@ -102,13 +101,14 @@ export function PolishPanel() {
             </div>
           )}
           {changes.map((c, i) => (
-            <div key={i} className="mb-2.5 rounded-[8px] border border-border bg-card p-3">
+            <div key={i} className="mb-2.5 rounded-md border border-border bg-card p-3">
               <div className="mb-1 font-mono text-label-12 text-muted-foreground">{KIND[c.kind] ?? c.kind} · {c.path}</div>
               {c.old && <del className="block text-copy-13 text-muted-foreground">{c.old}</del>}
               <ins className="mt-1 block text-copy-13 text-green-900 no-underline">{c.new}</ins>
               <label className="mt-2 flex items-center gap-2 text-label-13">
                 <Checkbox aria-label={`采纳第 ${i + 1} 条`}
-                  checked={accepted[i] ?? false} onChange={(e) => setAccepted({ ...accepted, [i]: e.target.checked })} />
+                  checked={accepted[i] ?? false}
+                  onCheckedChange={(checked) => setAccepted({ ...accepted, [i]: checked === true })} />
                 采纳这条
               </label>
             </div>

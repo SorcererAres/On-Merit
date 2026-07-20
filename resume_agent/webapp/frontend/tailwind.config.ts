@@ -97,6 +97,35 @@ export default {
         border: "var(--border)",
         input: "var(--input)",
         ring: "var(--ring)",
+        overlay: "var(--overlay)",
+        "resume-canvas": "var(--resume-canvas)",
+        "primary-subtle": "var(--primary-subtle)",
+        // 中栏画布悬浮缩放控件（Figma 1004:981）
+        "canvas-control": {
+          DEFAULT: "var(--canvas-control)",
+          foreground: "var(--canvas-control-foreground)",
+          border: "var(--canvas-control-border)",
+          hover: "var(--canvas-control-hover)",
+        },
+        gallery: {
+          DEFAULT: "var(--gallery-background)",
+          surface: "var(--gallery-surface)",
+          preview: "var(--gallery-preview)",
+          foreground: "var(--gallery-foreground)",
+          muted: "var(--gallery-muted)",
+          control: "var(--gallery-control)",
+          active: "var(--gallery-active)",
+          "active-foreground": "var(--gallery-active-foreground)",
+          border: "var(--gallery-border)",
+          card: "var(--gallery-card)",
+        },
+        editor: {
+          "header-border": "var(--editor-header-border)",
+          switch: "var(--editor-header-switch)",
+          "switch-border": "var(--editor-header-switch-border)",
+          title: "var(--editor-header-title)",
+          muted: "var(--editor-header-muted)",
+        },
       },
 
       fontFamily: {
@@ -152,13 +181,66 @@ export default {
         10: "40px",
         16: "64px",
         24: "96px",
+        "gallery-gap": "1.3125rem",
+        "gallery-copy-gap": "0.5625rem",
+      },
+
+      width: {
+        "editor-left": "27.5rem",
+        "editor-left-compact": "22.5rem",
+        "editor-right": "22.5rem",
+        "editor-right-compact": "20rem",
+        "resume-mobile": "24.375rem",
+        "month-picker": "15.5rem",
+        "dialog-mobile": "calc(100% - 2rem)",
+      },
+
+      maxWidth: {
+        content: "75rem",
+        prose: "65ch",
+        "mobile-panel": "calc(100vw - 3rem)",
+      },
+
+      height: {
+        "app-header": "3.25rem",
+        "resume-thumbnail": "10.0625rem",
+        "thumb-document": "35rem",
+        "gallery-preview-document": "8.125rem",
+      },
+
+      minHeight: {
+        "page-fallback": "50dvh",
+        dropzone: "8.125rem",
+      },
+
+      maxHeight: {
+        dialog: "80dvh",
+        "dialog-list": "50dvh",
+        select: "17.5rem",
+        dropdown: "var(--radix-dropdown-menu-content-available-height)",
+      },
+
+      minWidth: {
+        "select-trigger": "var(--radix-select-trigger-width)",
+      },
+
+      gridTemplateColumns: {
+        import: "1fr auto 1fr",
+        gallery: "repeat(4, 17.75rem)",
+      },
+
+      scale: {
+        press: "0.97",
       },
 
       borderRadius: {
         sm: "6px",
+        header: "8px",
+        control: "10px",
         md: "12px",
         lg: "16px",
         full: "9999px",
+        gallery: "2rem",
         DEFAULT: "var(--radius)",
       },
 
@@ -166,6 +248,7 @@ export default {
         card: "var(--shadow-card)",
         popover: "var(--shadow-popover)",
         modal: "var(--shadow-modal)",
+        "canvas-control": "var(--shadow-canvas-control)",
         // 两层聚焦环
         focus: "0 0 0 2px var(--background-100), 0 0 0 4px var(--ring)",
       },
@@ -177,6 +260,9 @@ export default {
         state: "150ms",
         popover: "200ms",
         overlay: "300ms",
+      },
+      transitionProperty: {
+        progress: "width",
       },
     },
   },

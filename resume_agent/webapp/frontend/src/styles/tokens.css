@@ -54,6 +54,32 @@
   --gray-alpha-900: #000000b3;
   --gray-alpha-1000: #000000e8;
 
+  /* —— 简历画廊（Figma 814:469）—— */
+  --gallery-background: #f0f1f5;
+  --gallery-surface: #f6f7f9;
+  --gallery-preview: #f5f6f8;
+  --gallery-foreground: #2b303b;
+  --gallery-muted: #bcbcbc;
+  --gallery-control: #787774;
+  --gallery-active: #2f3437;
+  --gallery-active-foreground: #ffffff;
+  --gallery-border: #efeff0;
+  --gallery-card: #ffffff;
+
+  /* —— 编辑器全局顶栏（Figma 837:6044）—— */
+  --editor-header-border: #f0f1f5;
+  --editor-header-switch: #f6f6f5;
+  --editor-header-switch-border: #f1f1f1;
+  --editor-header-title: #2b303b;
+  --editor-header-muted: #8c8b91;
+
+  /* —— 编辑器中栏画布缩放控件（Figma 1004:1018）——
+     画布纸张恒为浅色，控件浮在其上，Light/Dark 同值（见 .dark 处说明） */
+  --canvas-control: #f4f4f6;
+  --canvas-control-foreground: #171717;
+  --canvas-control-border: #ffffff;
+  --canvas-control-hover: color-mix(in srgb, var(--canvas-control) 92%, #000);
+
   /* —— blue：链接 / 聚焦 / 信息（成功用 green，见下）—— */
   --blue-100: #f0f7ff;
   --blue-200: #e9f4ff;
@@ -167,6 +193,9 @@
     0 4px 8px -4px rgba(0, 0, 0, 0.04), 0 16px 24px -8px rgba(0, 0, 0, 0.06);
   --shadow-modal: 0 1px 1px rgba(0, 0, 0, 0.02),
     0 8px 16px -4px rgba(0, 0, 0, 0.04), 0 24px 32px -8px rgba(0, 0, 0, 0.06);
+  /* 画布缩放控件三层投影（Figma 1004:981） */
+  --shadow-canvas-control: 0 1px 10px rgba(0, 0, 0, 0.05),
+    0 4px 5px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
 
   /* —— 动效 —— */
   --ease-geist: cubic-bezier(0.175, 0.885, 0.32, 1.1);
@@ -199,6 +228,9 @@
   --border: var(--gray-alpha-400);
   --input: var(--gray-alpha-400);
   --ring: var(--blue-700); /* Light 聚焦环 = blue-700 */
+  --overlay: color-mix(in srgb, #000 44%, transparent);
+  --resume-canvas: #edeef2; /* 中栏画布灰底（Figma 1004:1018），与 templates.ts 的 --canvas 同值 */
+  --primary-subtle: color-mix(in oklab, var(--primary) 22%, transparent);
   --radius: var(--radius-sm);
 }
 
@@ -316,12 +348,41 @@
   --pink-900: #ff4d8d;
   --pink-1000: #ffe9f4;
 
+  /* —— 简历画廊（Dark 语义映射）—— */
+  --gallery-background: var(--background-100);
+  --gallery-surface: var(--gray-100);
+  --gallery-preview: var(--gray-200);
+  --gallery-foreground: var(--gray-1000);
+  --gallery-muted: var(--gray-600);
+  --gallery-control: var(--gray-800);
+  --gallery-active: var(--gray-300);
+  --gallery-active-foreground: var(--gray-1000);
+  --gallery-border: var(--gray-400);
+  --gallery-card: var(--background-100);
+
+  /* —— 编辑器全局顶栏（Dark 语义映射）—— */
+  --editor-header-border: var(--gray-300);
+  --editor-header-switch: var(--gray-100);
+  --editor-header-switch-border: var(--gray-300);
+  --editor-header-title: var(--gray-1000);
+  --editor-header-muted: var(--gray-700);
+
+  /* —— 编辑器中栏画布缩放控件（Dark 保持 Light 同值）——
+     简历纸张/画布恒为浅色（所见即导出），控件浮在浅色画布上，不随主题反色 */
+  --canvas-control: #f4f4f6;
+  --canvas-control-foreground: #171717;
+  --canvas-control-border: #ffffff;
+  --canvas-control-hover: color-mix(in srgb, var(--canvas-control) 92%, #000);
+
   /* —— 阴影（Dark：抬升更依赖描边，阴影更实）—— */
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.16);
   --shadow-popover: 0 1px 1px rgba(0, 0, 0, 0.2),
     0 4px 8px -4px rgba(0, 0, 0, 0.28), 0 16px 24px -8px rgba(0, 0, 0, 0.36);
   --shadow-modal: 0 1px 1px rgba(0, 0, 0, 0.2),
     0 8px 16px -4px rgba(0, 0, 0, 0.32), 0 24px 32px -8px rgba(0, 0, 0, 0.4);
+  /* 画布缩放控件投影：画布恒浅色，投影与 Light 同值 */
+  --shadow-canvas-control: 0 1px 10px rgba(0, 0, 0, 0.05),
+    0 4px 5px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.12);
 
   /* —— shadcn 语义层（Dark 必须重声明全部别名）——
      CSS 变量继承的是计算值；:root 的别名已解析为 Light 值，若这里不重声明，
@@ -346,6 +407,9 @@
   --border: var(--gray-alpha-400);
   --input: var(--gray-alpha-400);
   --ring: var(--blue-900); /* Dark 聚焦环 = blue-900 */
+  --overlay: color-mix(in srgb, #000 64%, transparent);
+  --resume-canvas: #edeef2; /* 画布恒浅色（同 Light），与 templates.ts 的 --canvas 同值 */
+  --primary-subtle: color-mix(in oklab, var(--primary) 22%, transparent);
 }
 
 /* --------------------------------------------------------------------------

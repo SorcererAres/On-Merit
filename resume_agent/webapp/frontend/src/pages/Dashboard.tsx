@@ -10,8 +10,19 @@ import { DEFAULT_LAYOUT, type LayoutSettings } from "@/lib/templates";
 import { cn } from "@/lib/cn";
 import { toast } from "sonner";
 import { confirmDialog } from "@/components/confirm";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import filePlusUrl from "@/assets/file-plus.svg";
+import chevronDownUrl from "@/assets/chevron-down.svg";
 import type { ResumeRecord } from "@/store/useStore";
-import { FilePlus2, Copy, Trash2, ChevronDown } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 
 interface ResumeMeta {
   id: string; title: string; role: string; version: number;
@@ -33,10 +44,12 @@ function relTime(iso: string): string {
   return `${new Date(iso).toLocaleDateString()} 更新`;
 }
 
-// 缩略图：虚拟化（可见含 300px 边距才挂 iframe，离屏卸载）；渲染结果按 id:version 缓存；
+// 缩略图：虚拟化（进入视口附近才挂 iframe，离屏卸载）；渲染结果按 id:version 缓存；
 // 加载经 in-flight 去重（防快速进出并发重拉）。
 const _thumbCache = new Map<string, string>();
 const _thumbInflight = new Map<string, Promise<string>>();
+const RESUME_PAGE_WIDTH = 794;
+const THUMB_STYLE_ID = "dashboard-thumbnail-overrides";
 function loadThumb(id: string, cacheKey: string): Promise<string> {
   const cached = _thumbCache.get(cacheKey);
   if (cached) return Promise.resolve(cached);
@@ -64,7 +77,7 @@ function Thumb({ id, version }: { id: string; version: number }) {
   useEffect(() => {
     const box = boxRef.current;
     if (!box || typeof IntersectionObserver === "undefined") { setVisible(true); return; }
-    const io = new IntersectionObserver((es) => setVisible(es[0].isIntersecting), { rootMargin: "300px" });
+    const io = new IntersectionObserver((es) => setVisible(es[0].isIntersecting), { rootMargin: "50%" });
     io.observe(box);
     return () => io.disconnect();
   }, []);
@@ -77,13 +90,35 @@ function Thumb({ id, version }: { id: string; version: number }) {
   }, [visible, doc, cacheKey, id]);
 
   const fit = () => {
-    const idoc = iframeRef.current?.contentDocument;
-    if (idoc?.documentElement) idoc.documentElement.style.setProperty("--fit", "0.34");
+    const iframe = iframeRef.current;
+    const idoc = iframe?.contentDocument;
+    if (!iframe || !idoc?.documentElement) return;
+
+    // 缩略图内层本身就是 Figma 的白色纸张：去掉预览器自带的画布边距与页阴影，
+    // 再按可用宽度缩放 A4，避免出现「卡片套卡片」和二次横向缩进。
+    idoc.documentElement.style.setProperty("--fit", String(iframe.clientWidth / RESUME_PAGE_WIDTH));
+    if (!idoc.getElementById(THUMB_STYLE_ID)) {
+      const style = idoc.createElement("style");
+      style.id = THUMB_STYLE_ID;
+      style.textContent = `
+        html, body { background: transparent !important; }
+        .canvas {
+          align-items: flex-start !important;
+          gap: 0 !important;
+          min-height: 0 !important;
+          padding: 0 !important;
+        }
+        .page { box-shadow: none !important; }
+      `;
+      idoc.head.appendChild(style);
+    }
   };
   return (
-    <div ref={boxRef} className="h-[161px] overflow-hidden bg-[#f5f5f4]">
-      {visible && doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
-        srcDoc={doc} onLoad={fit} className="pointer-events-none h-[560px] w-full border-0" />}
+    <div ref={boxRef} className="h-resume-thumbnail overflow-hidden bg-gallery-preview pt-8 opacity-90">
+      <div className="mx-8 h-gallery-preview-document overflow-hidden rounded-tl-lg rounded-tr-md bg-gallery-card">
+        {visible && doc && <iframe ref={iframeRef} title="" aria-hidden tabIndex={-1} sandbox="allow-same-origin"
+          srcDoc={doc} onLoad={fit} className="pointer-events-none h-thumb-document w-full border-0" />}
+      </div>
     </div>
   );
 }
@@ -129,82 +164,105 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="anim-in mx-auto max-w-[1200px] px-5 py-6 xl:px-0">
-      <h1 className="text-heading-20 text-foreground">我的简历</h1>
-      <p className="mt-[5px] text-copy-14 text-muted-foreground">准备好迎接下一个闪光机会了吗？</p>
+    <main className="anim-in mx-auto max-w-content px-5 py-6 xl:px-0">
+      <h1 className="text-heading-20 text-gallery-foreground">我的简历</h1>
+      <p className="mt-gallery-copy-gap text-copy-14 text-gray-900">准备好迎接下一个闪光机会了吗？</p>
 
       {/* 筛选 + 排序 */}
       <div className="mt-6 flex items-center">
         <div className="flex items-center gap-4">
           {CHIPS.map((c) => (
-            <button key={c.key} aria-pressed={filter === c.key} onClick={() => setFilter(c.key)}
-              className={cn("h-7 rounded-full px-3.5 text-label-12",
+            <Button key={c.key} type="button" variant="ghost"
+              aria-pressed={filter === c.key} onClick={() => setFilter(c.key)}
+              className={cn("relative h-7 min-h-7 rounded-full px-3.5 py-1.5 after:absolute after:-inset-y-2 after:inset-x-0",
                 filter === c.key
-                  ? "bg-primary text-primary-foreground"
-                  : "border border-border bg-background text-foreground hover:bg-accent/40")}>
-              {c.label}
-            </button>
+                  ? "bg-gallery-active text-gallery-active-foreground hover:bg-gallery-active"
+                  : "border border-gallery-border bg-transparent text-gallery-control hover:bg-gallery-surface")}>
+              <span className="text-label-12">{c.label}</span>
+            </Button>
           ))}
         </div>
-        <button onClick={() => setSort(sort === "updated" ? "score" : "updated")}
-          className="ml-auto flex h-7 items-center gap-1 rounded-full border border-border px-3 text-label-12 text-muted-foreground hover:text-foreground">
-          排序：{sort === "updated" ? "按最后更新" : "按评分"}
-          <ChevronDown className="h-4 w-4" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="ghost"
+              className="relative ml-auto h-7 min-h-7 gap-1 rounded-full border border-gallery-border bg-transparent py-1.5 pl-3 pr-2 text-gallery-control after:absolute after:-inset-y-2 after:inset-x-0 hover:bg-gallery-surface hover:text-gallery-foreground data-[state=open]:bg-gallery-surface">
+              <span className="text-label-12">排序：{sort === "updated" ? "按最后更新" : "按评分"}</span>
+              <img src={chevronDownUrl} alt="" className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="border-gallery-border bg-gallery-card text-gallery-foreground">
+            <DropdownMenuRadioGroup value={sort} onValueChange={(value) => setSort(value as Sort)}>
+              <DropdownMenuRadioItem value="updated" className="min-h-11">
+                <span className="text-copy-14">按最后更新</span>
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="score" className="min-h-11">
+                <span className="text-copy-14">按评分</span>
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* 卡片网格：284×256，gap 21 */}
-      <div className="mt-4 grid grid-cols-1 gap-[21px] sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-gallery-gap sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-gallery">
         {/* 新建/导入卡 */}
-        <button disabled={busy} onClick={create}
-          className="flex h-[256px] flex-col items-center justify-center rounded-2xl bg-muted text-center transition hover:bg-accent/60 disabled:opacity-50">
-          <FilePlus2 className="h-10 w-10 text-muted-foreground" strokeWidth={1.5} />
-          <div className="mt-4 text-heading-16 text-foreground">新建/导入简历</div>
-          <div className="mt-2 text-label-12 text-muted-foreground">支持 PDF/Word/ 图片</div>
-        </button>
+        <Button type="button" variant="ghost" disabled={busy} onClick={create}
+          className="h-64 flex-col !rounded-gallery border border-gallery-card bg-gallery-surface text-center hover:bg-gallery-surface">
+          <img src={filePlusUrl} alt="" className="h-14 w-14" />
+          <div className="mt-4 text-heading-16 text-gallery-foreground">新建/导入简历</div>
+          <div className="mt-2 text-label-12 text-gallery-muted">支持 PDF/Word/ 图片</div>
+        </Button>
 
         {list !== null && shown.map((r) => (
-          <div key={r.id}
-            className="group relative h-[256px] overflow-hidden rounded-2xl border border-border bg-card">
-            <button className="block w-full text-left" onClick={() => nav(`/editor/${r.id}`)}
+          <Card key={r.id}
+            className="resume-card group relative isolate h-64 overflow-hidden !rounded-gallery border-0 bg-gallery-card p-0 ring-1 ring-inset ring-gallery-card">
+            <Button type="button" variant="ghost"
+              className="h-full min-h-0 w-full flex-col items-stretch justify-start whitespace-normal rounded-none bg-transparent p-0 text-left hover:bg-transparent active:scale-100 focus-visible:ring-inset focus-visible:ring-offset-0"
+              onClick={() => nav(`/editor/${r.id}`)}
               aria-label={`打开 ${r.title}`}>
               <Thumb id={r.id} version={r.version} />
               <div className="px-4 pt-4">
-                <div className="truncate text-heading-16 text-foreground">
+                <div className="truncate text-heading-16 text-gallery-foreground">
                   {r.title || "未命名简历"}
                 </div>
                 <div className="mt-2 flex items-baseline justify-between">
-                  <span className="text-label-12 text-muted-foreground">{relTime(r.updated_at)}</span>
+                  <span className="text-label-12 text-gallery-muted">{relTime(r.updated_at)}</span>
                   {r.latest_score != null && (
-                    <span className="text-label-12" style={{ color: "var(--green-700)" }}>
+                    <span className="text-label-12 text-green-900">
                       评分: {Math.round(r.latest_score)}
                     </span>
                   )}
                 </div>
               </div>
-            </button>
-            {/* 悬停操作（稿未画，功能保留为浮层） */}
-            <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition group-hover:opacity-100">
-              <button aria-label="复制" onClick={(e) => { e.stopPropagation(); duplicate(r.id); }}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-card hover:text-foreground">
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-              <button aria-label="删除" onClick={(e) => { e.stopPropagation(); remove(r.id, r.title); }}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-card hover:text-destructive">
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+            </Button>
+            {/* 桌面端悬停/聚焦显示；触屏端常显。44px 点击区内使用 32px 视觉按钮，避免遮挡缩略图。 */}
+            <div className="resume-card-actions absolute right-1 top-1 z-10 flex">
+              <Button type="button" variant="ghost" aria-label="复制"
+                onClick={(e) => { e.stopPropagation(); duplicate(r.id); }}
+                className="group/action h-11 w-11 rounded-full bg-transparent p-0 text-muted-foreground hover:bg-transparent hover:text-foreground">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background shadow-card transition-colors duration-state ease group-hover/action:bg-accent group-focus-visible/action:bg-accent">
+                  <Copy className="h-4 w-4" />
+                </span>
+              </Button>
+              <Button type="button" variant="ghost" aria-label="删除"
+                onClick={(e) => { e.stopPropagation(); remove(r.id, r.title); }}
+                className="group/action h-11 w-11 rounded-full bg-transparent p-0 text-muted-foreground hover:bg-transparent hover:text-destructive">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background shadow-card transition-colors duration-state ease group-hover/action:bg-accent group-focus-visible/action:bg-accent">
+                  <Trash2 className="h-4 w-4" />
+                </span>
+              </Button>
             </div>
-          </div>
+          </Card>
         ))}
       </div>
 
-      {list === null && <p className="mt-4 text-copy-14 text-muted-foreground">加载中…</p>}
+      {list === null && <p className="mt-4 text-copy-14 text-gallery-control">加载中…</p>}
       {list !== null && shown.length === 0 && (
-        <p className="mt-4 text-copy-14 text-muted-foreground">
+        <p className="mt-4 text-copy-14 text-gallery-control">
           {filter === "all" ? "还没有简历，点「新建/导入简历」开始。"
             : filter === "done" ? "还没有已完成的简历（运行过诊断即视为完成）。" : "没有草稿。"}
         </p>
       )}
-    </div>
+    </main>
   );
 }

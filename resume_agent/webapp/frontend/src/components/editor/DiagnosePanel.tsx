@@ -20,7 +20,7 @@ import { toast } from "sonner";
 const fmtTime = (at: number) =>
   new Date(at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 
-export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}) {
+export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | Promise<boolean> } = {}) {
   const { resume, jd, role, diagnosis, contentSeq, setJD, setRole, setDiagnosis } = useStore();
   const [roles, setRoles] = useState<Role[]>([]);
   // 一级/二级页导航（仅组件内部态；切 tab / 切简历时组件卸载重挂，自然回到 console）
@@ -39,16 +39,18 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
   const runDetect = async () => {
     const st = stamp();
     const r = await detect.run();
-    if (r && fresh(st)) setRole(r.role);
+    if (r && fresh(st) && r.role !== useStore.getState().role) setRole(r.role);
   };
 
   const analyze = useTask(async (signal) => {
-    const evalResult = await postJSON<EvalResult>("/api/evaluate", { resume, role }, signal);
-    const match = jd.trim() ? await postJSON<MatchReport>("/api/match", { resume, jd }, signal) : null;
+    const [evalResult, match] = await Promise.all([
+      postJSON<EvalResult>("/api/evaluate", { resume, role }, signal),
+      jd.trim() ? postJSON<MatchReport>("/api/match", { resume, jd }, signal) : Promise.resolve(null),
+    ]);
     return { evalResult, match };
   });
   const runAnalyze = async () => {
-    onBeforeRun?.();                 // 诊断前完整性提示（不阻断，仅亮黄条 §4.3）
+    if (onBeforeRun && !(await onBeforeRun())) return; // 有待完善项时，由用户明确选择补全或继续
     const st = stamp();
     const r = await analyze.run();
     if (!r) return;
@@ -76,6 +78,7 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
     || diagnosis.stamp.jd !== jd
     || diagnosis.stamp.role !== role
   );
+  const shortcutKey = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵" : "Ctrl+Enter";
 
   // ===== 二级 · 报告页（仅在有报告时可达）=====
   if (view === "report" && diagnosis) {
@@ -83,13 +86,13 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border pl-3 pr-3">
-          <button aria-label="返回诊断台" onClick={() => setView("console")}
-            className="flex h-8 items-center gap-1 rounded-[8px] px-2 text-copy-14 text-foreground hover:bg-accent">
+          <Button type="button" variant="ghost" aria-label="返回诊断台" onClick={() => setView("console")}
+            className="h-11 rounded-sm px-2 text-copy-14 text-foreground">
             <ArrowLeft className="h-4 w-4" /> 返回
-          </button>
+          </Button>
           <span className="text-copy-13 text-muted-foreground">生成于 {fmtTime(diagnosis.stamp.at)}</span>
           <Button variant="secondary" disabled={analyze.loading || !resume} onClick={runAnalyze}
-            className="ml-auto h-8 rounded-[8px] px-3 text-copy-13">重新诊断</Button>
+            className="ml-auto px-3 text-copy-13">重新诊断</Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-3">
           {stale && (
@@ -113,16 +116,15 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
       {/* 设计稿 843:268：select 全宽带 chevron；自动检测魔棒挪到 label 行右端（功能保留，不挤占 select） */}
       <div className="flex items-center justify-between">
         <label htmlFor="dg-role" className="text-copy-14 text-foreground">岗位</label>
-        <button aria-label="自动检测岗位" title="有 JD 以 JD 为准，否则按简历" disabled={detect.loading}
-          onClick={runDetect}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:opacity-50">
+        <Button type="button" variant="ghost" aria-label="自动检测岗位" title="有 JD 以 JD 为准，否则按简历"
+          disabled={detect.loading} onClick={runDetect} className="w-11 px-0 text-muted-foreground hover:text-foreground">
           <Wand2 className="h-3.5 w-3.5" />
-        </button>
+        </Button>
       </div>
       <div className="mt-2">
         {/* shadcn Select（自绘弹层）；高度走 ui 标准 40px，圆角对齐面板控件 */}
         <Select value={role} onValueChange={setRole} disabled={detect.loading}>
-          <SelectTrigger id="dg-role" aria-label="评分岗位" className="rounded-[8px]">
+          <SelectTrigger id="dg-role" aria-label="评分岗位" className="rounded-md">
             <SelectValue placeholder="请选择岗位" />
           </SelectTrigger>
           <SelectContent>
@@ -134,10 +136,17 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
       <label htmlFor="dg-jd" className="mt-3.5 block text-copy-14 text-foreground">目标 JD</label>
       <Textarea id="dg-jd" rows={4} aria-label="目标岗位 JD" placeholder="粘贴目标职位JD（可留空）⋯"
         value={jd} onChange={(e) => setJD(e.target.value)}
-        className="mt-2 h-24 resize-none rounded-[8px] py-3 text-copy-14" />
+        aria-keyshortcuts="Meta+Enter Control+Enter"
+        onKeyDown={(e) => {
+          if (!(e.metaKey || e.ctrlKey) || e.key !== "Enter" || analyze.loading || !resume) return;
+          e.preventDefault();
+          void runAnalyze();
+        }}
+        className="mt-2 h-24 resize-none rounded-md py-3 text-copy-14" />
 
       <Button disabled={analyze.loading || !resume} onClick={runAnalyze}
-        className="mt-4 w-full rounded-[8px]">
+        title={`运行诊断（${shortcutKey}）`} aria-keyshortcuts="Meta+Enter Control+Enter"
+        className="mt-4 w-full rounded-sm">
         {diagnosis ? "重新诊断" : "诊断"}
       </Button>
       <TaskStatus loading={analyze.loading} elapsed={analyze.elapsed} stop={analyze.stop} error={analyze.error} />
@@ -149,15 +158,15 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => void } = {}
       )}
       {diagnosis && !analyze.loading && (
         // 最新报告入口：点击进二级报告页（过期时右侧标注）
-        <button onClick={() => setView("report")}
-          className="mt-4 flex w-full items-center gap-2 rounded-[8px] border border-border px-3 py-2.5 text-left hover:bg-accent">
+        <Button type="button" variant="secondary" onClick={() => setView("report")}
+          className="mt-4 h-auto w-full justify-start rounded-sm px-3 py-2.5 text-left active:scale-100">
           <span className="text-button-14 text-foreground">
             最新报告 {diagnosis.report.evalResult.score}/{diagnosis.report.evalResult.max}
           </span>
           <span className="text-copy-13 text-muted-foreground">· {fmtTime(diagnosis.stamp.at)}</span>
           {stale && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-label-12 text-amber-900">已过期</span>}
           <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+        </Button>
       )}
     </div>
   );

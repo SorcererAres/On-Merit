@@ -1,5 +1,5 @@
 // shadcn/ui AlertDialog（Radix primitive + Tailwind），入库自持。替代 window.confirm 系统弹窗。
-// 皮肤吃 Geist token（background / border / shadow-modal），遮罩与既有业务弹窗一致（bg-black/40）；
+// 皮肤吃 Geist token（background / border / shadow-modal / overlay）；
 // 未用 tailwindcss-animate（本仓库无该插件）。命令式用法见 components/confirm.tsx 的 confirmDialog()。
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
@@ -14,7 +14,7 @@ const AlertDialogOverlay = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Overlay ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/40", className)} {...props} />
+    className={cn("fixed inset-0 z-50 bg-overlay", className)} {...props} />
 ));
 AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 

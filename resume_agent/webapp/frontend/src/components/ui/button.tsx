@@ -14,9 +14,9 @@ export const Button = React.forwardRef<HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: V }>(
   ({ className, variant = "primary", ...p }, ref) => (
     <button ref={ref} className={cn(
-      "inline-flex items-center justify-center gap-2 rounded-md text-button-14 px-4 py-2 min-h-[40px]",
+      "inline-flex min-h-11 touch-manipulation items-center justify-center gap-2 rounded-md px-4 py-2 text-button-14",
       // Geist 两层聚焦环：ring-offset 造 2px 间隙 + ring 画环
-      "transition disabled:opacity-50 disabled:pointer-events-none",
+      "transition-[background-color,color,border-color,opacity,transform] duration-state ease-out active:scale-press disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       styles[variant], className)} {...p} />
   ));

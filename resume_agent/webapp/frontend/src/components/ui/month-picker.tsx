@@ -5,6 +5,8 @@ import { useMemo, useRef, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const parse = (v?: string) => {
@@ -19,7 +21,7 @@ const label = (v?: string) => {
 };
 
 /** 12 宫格月份网格 + 年份步进。受控：value=`YYYY-MM`，选中即回调并请求关闭。 */
-function MonthGrid({ value, onPick }: { value?: string; onPick: (v: string) => void }) {
+export function MonthPickerPanel({ value, onPick }: { value?: string; onPick: (v: string) => void }) {
   const sel = parse(value);
   const [year, setYear] = useState(() => sel?.y ?? new Date().getFullYear());
   const btns = useRef<(HTMLButtonElement | null)[]>([]);
@@ -33,35 +35,35 @@ function MonthGrid({ value, onPick }: { value?: string; onPick: (v: string) => v
     if (n >= 0 && n < 12) btns.current[n]?.focus();
   };
   return (
-    <div className="w-[248px] p-3">
+    <div className="w-month-picker p-3">
       <div className="mb-2 flex items-center justify-between">
-        <button type="button" aria-label="上一年" onClick={() => setYear((y) => y - 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Button type="button" variant="ghost" aria-label="上一年" onClick={() => setYear((y) => y - 1)}
+          className="h-11 w-11 px-0 text-muted-foreground hover:text-foreground">
           <ChevronLeft className="h-4 w-4" />
-        </button>
+        </Button>
         <div className="text-button-14 tabular-nums text-foreground">{year}年</div>
-        <button type="button" aria-label="下一年" onClick={() => setYear((y) => y + 1)}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Button type="button" variant="ghost" aria-label="下一年" onClick={() => setYear((y) => y + 1)}
+          className="h-11 w-11 px-0 text-muted-foreground hover:text-foreground">
           <ChevronRight className="h-4 w-4" />
-        </button>
+        </Button>
       </div>
       <div className="grid grid-cols-3 gap-1">
         {Array.from({ length: 12 }, (_, k) => {
           const mo = k + 1;
           const active = !!sel && sel.y === year && sel.mo === mo;
           return (
-            <button key={mo} type="button" ref={(el) => (btns.current[k] = el)}
+            <Button key={mo} type="button" ref={(el) => (btns.current[k] = el)}
+              variant={active ? "primary" : "ghost"}
               aria-label={`${year}年${mo}月`} aria-pressed={active} onKeyDown={onKey(k)}
               onClick={() => onPick(`${year}-${String(mo).padStart(2, "0")}`)}
               className={cn(
-                "flex h-9 items-center justify-center rounded-md text-copy-13 tabular-nums transition",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "h-11 px-2 text-copy-13 tabular-nums",
                 active
                   ? "bg-primary text-primary-foreground hover:opacity-90"
                   : "text-foreground hover:bg-accent",
               )}>
               {mo}月
-            </button>
+            </Button>
           );
         })}
       </div>
@@ -77,25 +79,25 @@ export function MonthPicker({ value, onChange, placeholder, ariaLabel }: {
   const legacy = useMemo(() => !!value && !MONTH.test(value), [value]); // 旧自由文本 → 文本框回退
   if (legacy) {
     return (
-      <input type="text" value={value ?? ""} placeholder={placeholder} aria-label={ariaLabel}
+      <Input type="text" value={value ?? ""} placeholder={placeholder} aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent py-2 text-copy-14 text-foreground placeholder:text-muted-foreground focus:outline-none" />
+        className="border-0 bg-transparent px-0 py-2 focus-visible:ring-0 focus-visible:ring-offset-0" />
     );
   }
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         {/* 触发器不自带焦点环：本组件恒嵌在带边框的字段行内，环由容器 has-[:focus-visible]:ring 统一提供（避免双环） */}
-        <button type="button" aria-label={ariaLabel}
-          className="flex w-full items-center gap-1 bg-transparent py-2 text-left text-copy-14 focus-visible:outline-none rounded-sm">
+        <Button type="button" variant="ghost" aria-label={ariaLabel}
+          className="w-full justify-start gap-1 rounded-sm bg-transparent px-0 py-2 text-left text-copy-14 active:scale-100">
           <span className={cn("min-w-0 flex-1 truncate tabular-nums", value ? "text-foreground" : "text-muted-foreground")}>
             {value ? label(value) : placeholder}
           </span>
           <Calendar className="h-4 w-4 shrink-0 text-muted-foreground" />
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="start">
-        <MonthGrid value={value} onPick={(v) => { onChange(v); setOpen(false); }} />
+        <MonthPickerPanel value={value} onPick={(v) => { onChange(v); setOpen(false); }} />
       </PopoverContent>
     </Popover>
   );

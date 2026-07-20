@@ -7,6 +7,7 @@ import {
 } from "./formControls";
 import { cn } from "@/lib/cn";
 import { MonthPicker } from "@/components/ui/month-picker";
+import { Button } from "@/components/ui/button";
 import { confirmDialog } from "@/components/confirm";
 import { Plus, Trash2 } from "lucide-react";
 import type { Resume } from "@/types";
@@ -95,10 +96,10 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const expEntry = (key: string): Rec => ({ id: uid(key), [EXP[key].nameKey]: "" });
 
   const removeBtn = (key: string, label: string) => (
-    <button aria-label={`移除${label}`} onClick={() => removeModule(key, label)}
-      className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-destructive">
+    <Button type="button" variant="ghost" aria-label={`移除${label}`} onClick={() => removeModule(key, label)}
+      className="h-11 w-11 px-0 text-muted-foreground hover:text-destructive">
       <Trash2 className="h-4 w-4" />
-    </button>
+    </Button>
   );
 
   // 经历型模块节
@@ -109,7 +110,8 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
         {arr.map((it, i) => (
           <ItemCard key={it.id ?? i} title={it[cfg.nameKey] || `未填${cfg.nameLabel}`}
             onDelete={() => { arr.splice(i, 1); bump(); }}>
-            <Field label={cfg.nameLabel} required error={errOf(`${key}[${i}].${cfg.nameKey}`)}>
+            <Field label={cfg.nameLabel} required path={`${key}[${i}].${cfg.nameKey}`}
+              error={errOf(`${key}[${i}].${cfg.nameKey}`)}>
               <BareInput aria-label={`${cfg.label} ${i + 1} ${cfg.nameLabel}`} value={it[cfg.nameKey] ?? ""} placeholder={cfg.namePh}
                 onBlur={() => touch(`${key}[${i}].${cfg.nameKey}`)}
                 onChange={(e) => { it[cfg.nameKey] = e.target.value; bump(); }} />
@@ -121,7 +123,8 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
               </Field>
             ))}
             {cfg.range && (
-              <MonthRange label="时间" start={it.startDate} end={it.endDate} error={errOf(`${key}[${i}].endDate`)}
+              <MonthRange label="时间" start={it.startDate} end={it.endDate} path={`${key}[${i}].endDate`}
+                error={errOf(`${key}[${i}].endDate`)}
                 onStart={(v) => { it.startDate = v; bump(); }} onEnd={(v) => { it.endDate = v; bump(); }} />
             )}
             {cfg.date && <MonthCell label="时间" value={it.date} onChange={(v) => { it.date = v; bump(); }} />}
@@ -147,7 +150,8 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
             {cfg.fields.map(([fk, fl, ph, req, kind]) => kind === "date"
               ? <MonthCell key={fk} label={fl} value={it[fk]} onChange={(v) => { it[fk] = v; bump(); }} />
               : (
-                <Field key={fk} label={fl} required={req} error={req ? errOf(`${key}[${i}].${fk}`) : undefined}>
+                <Field key={fk} label={fl} required={req} path={req ? `${key}[${i}].${fk}` : undefined}
+                  error={req ? errOf(`${key}[${i}].${fk}`) : undefined}>
                   <BareInput aria-label={`${cfg.label} ${i + 1} ${fl}`} value={it[fk] ?? ""} placeholder={ph}
                     maxLength={fk === "summary" ? 100 : undefined}
                     onBlur={req ? () => touch(`${key}[${i}].${fk}`) : undefined}
@@ -181,7 +185,7 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
   const customSections = () => ((dd.custom_sections ?? []) as Rec[]).map((cs, i) => (
     <AccordionSection key={cs.id ?? i} id={`mod-custom-${cs.id}`} title={cs.title || "自定义模块"}
       right={
-        <button aria-label="移除该自定义模块" onClick={async () => {
+        <Button type="button" variant="ghost" aria-label="移除该自定义模块" onClick={async () => {
           if (!(await confirmDialog({
             title: "移除该自定义模块？", description: "其内容将被删除。",
             confirmText: "移除", destructive: true,
@@ -189,10 +193,11 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
           (dd.custom_sections as Rec[]).splice(i, 1);
           if (!(dd.custom_sections as Rec[]).length) delete dd.custom_sections;
           bump();
-        }} className="flex h-6 w-6 items-center justify-center text-muted-foreground hover:text-destructive">
+        }} className="h-11 w-11 px-0 text-muted-foreground hover:text-destructive">
           <Trash2 className="h-4 w-4" />
-        </button>}>
-      <Field label="模块标题" required error={errOf(`custom_sections[${i}].title`)}>
+        </Button>}>
+      <Field label="模块标题" required path={`custom_sections[${i}].title`}
+        error={errOf(`custom_sections[${i}].title`)}>
         <BareInput aria-label={`自定义模块 ${i + 1} 标题`} value={cs.title ?? ""} placeholder="请输入模块标题" maxLength={10}
           onBlur={() => touch(`custom_sections[${i}].title`)}
           onChange={(e) => { cs.title = e.target.value; bump(); }} />
@@ -218,12 +223,12 @@ export function ExtraModules({ d, bump, link, errOf, touch }: {
         <h3 className="text-heading-16 text-foreground">添加模块</h3>
         <div className="mt-3 grid grid-cols-2 gap-3">
           {panelCards.map((k) => (
-            <button key={k} onClick={() => add(k)}
-              className={cn("flex items-center justify-between rounded-[10px] border border-border px-4 py-3.5 text-left",
-                "text-copy-14 text-foreground transition hover:border-muted-foreground hover:bg-accent/30")}>
+            <Button key={k} type="button" variant="ghost" onClick={() => add(k)}
+              className={cn("h-auto min-h-11 items-center justify-between rounded-md border border-border px-4 py-3 text-left",
+                "text-copy-14 text-foreground active:scale-100")}>
               {LABEL[k]}
               <Plus className="h-4 w-4 text-muted-foreground" />
-            </button>
+            </Button>
           ))}
         </div>
       </section>

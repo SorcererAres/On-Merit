@@ -14,7 +14,7 @@ export const Progress = ({ value, label, name }: { value: number; label?: string
     // name → 可访问名称（aria-valuetext 不能替代 name）；label → 数值播报
     <div role="progressbar" aria-label={name ?? label} aria-valuenow={v} aria-valuemin={0} aria-valuemax={100}
       aria-valuetext={label ?? `${v}%`} className="h-2 rounded-full bg-gray-200 overflow-hidden">
-      <div className="h-full bg-primary transition-[width]" style={{ width: `${v}%` }} />
+      <div className="h-full bg-primary transition-progress" style={{ width: `${v}%` }} />
     </div>
   );
 };

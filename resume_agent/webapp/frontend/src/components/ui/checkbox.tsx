@@ -1,14 +1,28 @@
-// Checkbox（组件库组件，FRONTEND.md §五 映射落地）：原生 input 自持皮肤，零新依赖。
-// 原生 checkbox 的键盘/aria/焦点态天然合格（不压 outline，吃全局 :focus-visible 环）；
-// accent-color 走 primary token，两主题联动。尺寸统一 16px（Emil：点击热区靠外层 label 扩大）。
-import * as React from "react";
-import { cn } from "@/lib/cn";
+import * as React from "react"
+import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
+import { Check } from "lucide-react"
 
-export const Checkbox = React.forwardRef<HTMLInputElement,
-  Omit<React.InputHTMLAttributes<HTMLInputElement>, "type">>(
-  ({ className, ...p }, ref) => (
-    <input ref={ref} type="checkbox"
-      className={cn("h-4 w-4 shrink-0 cursor-pointer accent-primary disabled:cursor-not-allowed disabled:opacity-50", className)}
-      {...p} />
-  ));
-Checkbox.displayName = "Checkbox";
+import { cn } from "@/lib/cn"
+
+const Checkbox = React.forwardRef<
+  React.ElementRef<typeof CheckboxPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <CheckboxPrimitive.Root
+    ref={ref}
+    className={cn(
+      "peer grid h-4 w-4 shrink-0 place-content-center rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+      className
+    )}
+    {...props}
+  >
+    <CheckboxPrimitive.Indicator
+      className={cn("grid place-content-center text-current")}
+    >
+      <Check className="h-4 w-4" />
+    </CheckboxPrimitive.Indicator>
+  </CheckboxPrimitive.Root>
+))
+Checkbox.displayName = CheckboxPrimitive.Root.displayName
+
+export { Checkbox }

@@ -53,8 +53,7 @@ export function SourcePanel() {
         {sourceText && span && (
           <>
             {sourceText.slice(0, span[0])}
-            <mark ref={markRef} className="rounded px-0.5 text-foreground"
-              style={{ background: "color-mix(in oklab, var(--primary) 22%, transparent)" }}>
+            <mark ref={markRef} className="rounded bg-primary-subtle px-0.5 text-foreground">
               {sourceText.slice(span[0], span[1])}
             </mark>
             {sourceText.slice(span[1])}

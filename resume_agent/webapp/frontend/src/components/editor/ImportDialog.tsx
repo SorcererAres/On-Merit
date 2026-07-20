@@ -4,12 +4,15 @@ import { postForm, postJSON } from "@/lib/api";
 import { useTask } from "@/lib/useTask";
 import { useStore } from "@/store/useStore";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TaskStatus } from "@/components/TaskStatus";
 import type { Resume, Warning } from "@/types";
-import { Upload, X } from "lucide-react";
+import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { confirmDialog } from "@/components/confirm";
+import { cn } from "@/lib/cn";
 
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { resume, jd, setImported, setRole } = useStore();
@@ -57,23 +60,19 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       .catch(() => {});
   };
 
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl rounded-xl border border-border bg-background p-5 shadow-lg">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-heading-20">导入简历</h3>
-          <Button variant="ghost" aria-label="关闭" onClick={onClose}><X className="h-4 w-4" /></Button>
-        </div>
-        <p className="text-copy-13 text-muted-foreground mb-3">支持 PDF、扫描件/图片（自动 OCR），或直接粘贴文本。</p>
-        <div className="grid gap-3 md:grid-cols-[1fr_auto_1fr] items-center">
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="max-w-2xl p-5">
+        <DialogTitle className="pr-12">导入简历</DialogTitle>
+        <DialogDescription className="text-copy-13">支持 PDF、扫描件/图片（自动 OCR），或直接粘贴文本。</DialogDescription>
+        <div className="grid items-center gap-3 md:grid-cols-import">
           <label
             onDragOver={(e) => { e.preventDefault(); setOver(true); }}
             onDragLeave={() => setOver(false)}
             onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) setFile(f); }}
-            className={`flex min-h-[130px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-4 text-center focus-within:ring-2 focus-within:ring-ring ${over ? "border-primary text-primary" : "border-border text-muted-foreground"}`}>
-            <input type="file" accept="application/pdf,image/*" aria-label="选择简历 PDF 或图片" className="sr-only"
+            className={cn("flex min-h-dropzone cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed p-4 text-center focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+              over ? "border-primary text-primary" : "border-border text-muted-foreground")}>
+            <Input type="file" accept="application/pdf,image/*" aria-label="选择简历 PDF 或图片" className="sr-only"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             <Upload className="h-6 w-6" />
             <span className="text-copy-14">{file ? file.name : "点击选择 PDF / 图片（或拖入）"}</span>
@@ -83,22 +82,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         {ingest.loading && (
           <div className="mt-3 space-y-2" aria-hidden>
-            {[92, 76, 84, 60].map((w, i) => (
-              <div key={i} className="skel h-3 rounded" style={{ width: `${w}%` }} />
-            ))}
-            <style>{`
-              .skel{position:relative;overflow:hidden;background:var(--muted)}
-              .skel::after{content:"";position:absolute;inset:0;transform:translateX(-100%);
-                background:linear-gradient(90deg,transparent,color-mix(in oklab,var(--primary) 22%,transparent),transparent);
-                animation:scan 1.1s ease-in-out infinite}
-              @keyframes scan{100%{transform:translateX(100%)}}
-              @media (prefers-reduced-motion: reduce){.skel::after{animation:none}}
-            `}</style>
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-5/6" />
+            <Skeleton className="h-3 w-3/4" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
         )}
         <Button className="mt-3" disabled={ingest.loading} onClick={submit}>解析并导入</Button>
         <TaskStatus loading={ingest.loading} elapsed={ingest.elapsed} stop={ingest.stop} error={ingest.error} />
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
