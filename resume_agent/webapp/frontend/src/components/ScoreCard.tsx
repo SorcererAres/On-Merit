@@ -2,6 +2,43 @@ import { Progress, Alert } from "./ui/misc";
 import { RadarChart } from "./editor/RadarChart";
 import type { EvalResult } from "@/types";
 
+// 模块 key → 中文名（与后端 _SECTION_DEFS 对齐）
+const SECTION_LABELS: Record<string, string> = {
+  summary: "个人简介",
+  exp: "工作经历",
+  intern: "实习经历",
+  proj: "项目经历",
+  org: "学生会/社团",
+  volunteer: "志愿经历",
+  campus: "校园大使",
+  thesis: "毕业设计/论文",
+  comp: "学术竞赛",
+  awards: "所获荣誉",
+  skills: "核心能力",
+  edu: "教育经历",
+  certs: "证书",
+};
+
+function generateSummary(dims: { label: string; score: number; max: number }[], totalScore: number, max: number) {
+  const ratio = totalScore / max;
+  // 找出最高分和最低分维度
+  const sorted = [...dims].sort((a, b) => (b.score / b.max) - (a.score / a.max));
+  const top = sorted[0];
+  const bottom = sorted[sorted.length - 1];
+  
+  let base = "";
+  if (ratio >= 0.9) base = "整体表现优秀，各方面均衡发展";
+  else if (ratio >= 0.8) base = "整体表现良好，但部分维度仍有提升空间";
+  else if (ratio >= 0.7) base = "整体表现中等，建议重点优化短板维度";
+  else if (ratio >= 0.6) base = "整体表现一般，多项维度需要改进";
+  else base = "整体表现较弱，建议全面优化";
+  
+  if (top && bottom) {
+    return `${base}；「${top.label}」表现最佳（${top.score}/${top.max}），「${bottom.label}」为当前最薄弱环节（${bottom.score}/${bottom.max}），建议优先补强。`;
+  }
+  return base;
+}
+
 // 评估报告卡：分数 + 能力雷达 + 各维度条 + 核心优势 + 需真实补充。诊断基线与修改后复评共用。
 // report=true：诊断报告页布局（大号分 + 雷达 + 维度图例 + 分组优化建议）。
 export function ScoreCard({ data, compact = false, report = false }: {
@@ -14,12 +51,17 @@ export function ScoreCard({ data, compact = false, report = false }: {
     .map(([k, c]) => ({ label: labelOf(k), ratio: c.max ? c.score / c.max : 0, score: c.score, max: c.max }));
 
   if (report) {
+    const summaryText = generateSummary(dims, data.score, data.max);
     return (
       <div>
+        {/* 分数 */}
         <div className="flex items-end gap-1">
           <span className="text-heading-40 text-foreground">{data.score}</span>
           <span className="pb-1 text-copy-14 text-muted-foreground">分</span>
         </div>
+        {/* 总结 */}
+        <p className="mt-1 text-copy-13 text-muted-foreground">{summaryText}</p>
+        {/* 免责声明 */}
         <p className="mt-1 text-copy-13 text-muted-foreground">
           基于当前简历内容，按“{data.role_label}”岗位维度进行模型启发式评估。分数用于定位内容问题，不代表面试通过率。
         </p>
@@ -36,12 +78,27 @@ export function ScoreCard({ data, compact = false, report = false }: {
           ))}
         </div>
 
+        {/* 优化概述 */}
         <div className="mt-5 border-t border-border pt-4">
-          <h3 className="text-heading-14 text-foreground">优化建议</h3>
+          <h3 className="text-heading-14 text-foreground">优化概述</h3>
+
+          {data.evaluation.key_strengths?.length > 0 && (
+            <section className="mt-3">
+              <h4 className="text-button-14 text-foreground">核心优势</h4>
+              <ol className="mt-2 space-y-2.5">
+                {data.evaluation.key_strengths.map((item, index) => (
+                  <li key={index} className="flex gap-2 text-copy-13 text-muted-foreground">
+                    <span className="shrink-0 text-foreground">{index + 1}.</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
 
           {data.evaluation.areas_for_improvement?.length > 0 && (
-            <section className="mt-3">
-              <h4 className="text-button-14 text-foreground">重点优化项</h4>
+            <section className="mt-4">
+              <h4 className="text-button-14 text-foreground">进一步优化建议</h4>
               <ol className="mt-2 space-y-2.5">
                 {data.evaluation.areas_for_improvement.map((item, index) => (
                   <li key={index} className="flex gap-2 text-copy-13 text-muted-foreground">
@@ -55,18 +112,9 @@ export function ScoreCard({ data, compact = false, report = false }: {
 
           {data.gaps?.length > 0 && (
             <section className="mt-4">
-              <h4 className="text-button-14 text-foreground">进一步优化建议</h4>
+              <h4 className="text-button-14 text-foreground">事实缺口</h4>
               <ul className="mt-2 list-disc space-y-2 pl-4 text-copy-13 text-muted-foreground">
                 {data.gaps.map((item, index) => <li key={index}>{item}</li>)}
-              </ul>
-            </section>
-          )}
-
-          {data.evaluation.key_strengths?.length > 0 && (
-            <section className="mt-4">
-              <h4 className="text-button-14 text-foreground">核心优势</h4>
-              <ul className="mt-2 list-disc space-y-2 pl-4 text-copy-13 text-muted-foreground">
-                {data.evaluation.key_strengths.map((item, index) => <li key={index}>{item}</li>)}
               </ul>
             </section>
           )}

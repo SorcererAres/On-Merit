@@ -104,9 +104,20 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
   );
   const shortcutKey = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵" : "Ctrl+Enter";
 
+  // 模块 key → 中文名（与后端 _SECTION_DEFS 对齐）
+  const sectionLabels: Record<string, string> = {
+    summary: "个人简介", exp: "工作经历", intern: "实习经历", proj: "项目经历",
+    org: "学生会/社团", volunteer: "志愿经历", campus: "校园大使",
+    thesis: "毕业设计/论文", comp: "学术竞赛", awards: "所获荣誉",
+    skills: "核心能力", edu: "教育经历", certs: "证书",
+  };
+
   // ===== 二级 · 报告页（仅在有报告时可达）=====
   if (view === "report" && diagnosis) {
     const ev = diagnosis.report.evalResult;
+    // section_advice 按模块分组（过滤空数组）
+    const sectionAdviceEntries = Object.entries(ev.evaluation.section_advice || {})
+      .filter(([, items]) => items.length > 0);
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex h-11 shrink-0 items-center border-b border-border px-4">
@@ -146,6 +157,27 @@ export function DiagnosePanel({ onBeforeRun }: { onBeforeRun?: () => boolean | P
           <div className="mt-3">
             <ScoreCard data={ev} report />
           </div>
+          {/* 优化详情：按模块展示 section_advice */}
+          {sectionAdviceEntries.length > 0 && (
+            <div className="mt-5 border-t border-border pt-4">
+              <h3 className="text-heading-14 text-foreground">优化详情</h3>
+              <div className="mt-3 space-y-4">
+                {sectionAdviceEntries.map(([key, items]) => (
+                  <section key={key} className="rounded-lg border border-border bg-muted/30 p-4">
+                    <h4 className="text-button-14 text-foreground">{sectionLabels[key] || key}</h4>
+                    <ol className="mt-2 space-y-2">
+                      {items.map((item, idx) => (
+                        <li key={idx} className="flex gap-2 text-copy-13 text-muted-foreground">
+                          <span className="shrink-0 text-foreground">{idx + 1}.</span>
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </section>
+                ))}
+              </div>
+            </div>
+          )}
           {diagnosis.report.match && (
             <div className="mt-5 border-t border-border pt-4">
               <h3 className="text-heading-14 text-foreground">岗位匹配</h3>

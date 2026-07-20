@@ -194,6 +194,23 @@ def test_section_advice_prompt_and_validation():
     print("OK: section_advice prompt 声明 + 宽松规范化 + 编号拆条")
 
 
+def test_diagnosis_prompt_format_requirements():
+    """诊断提示词必须包含格式要求：简短标题 + 引用具体内容 + 改写方向示例。"""
+    r = rubrics.get_rubric("designer")
+    secs = ev.resume_sections(DESIGNER_RESUME)
+    msgs = ev.build_criteria_prompt(r, "简历文本", secs)
+    user_content = msgs[1]["content"]
+    # section_advice 规则必须包含三要素要求
+    assert "简短标题" in user_content, "section_advice 规则缺「简短标题」要求"
+    assert "改写方向" in user_content or "示例" in user_content, "section_advice 规则缺改写方向示例"
+    # key_strengths 规则必须包含格式要求
+    assert "key_strengths" in user_content
+    # areas_for_improvement 规则必须包含优先级和格式要求
+    assert "areas_for_improvement" in user_content
+    assert "优先级" in user_content or "从高到低" in user_content, "areas_for_improvement 缺优先级要求"
+    print("OK: 诊断提示词包含格式要求（标题/引用/改写方向/优先级）")
+
+
 def test_evaluate_runs_validation():
     """evaluate 端到端走校验：篡改的 max 被纠正。"""
     r = rubrics.get_rubric("designer")
@@ -272,6 +289,7 @@ if __name__ == "__main__":
     test_resume_to_text_drops_personal_fields()
     test_validate_evaluation_strict()
     test_section_advice_prompt_and_validation()
+    test_diagnosis_prompt_format_requirements()
     test_evaluate_runs_validation()
     test_evaluate_retries_on_bad_output()
     test_portfolio_link_detection()
